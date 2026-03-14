@@ -1,0 +1,107 @@
+{
+  "projectType": "saas",
+  "projectName": "Auditoriapp",
+  "projectDescription": "SaaS platform for auditing, traceability, and transparent management of project funds for multiple beneficiary entities.",
+  "theme": "linden",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Platform Guide",
+            "pages": [
+              "platform/architecture",
+              "platform/multi-tenancy",
+              "platform/security"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/projects",
+              "features/budgets",
+              "features/renditions",
+              "features/documents",
+              "features/dashboard"
+            ]
+          },
+          {
+            "group": "User Roles",
+            "pages": [
+              "roles/overview",
+              "roles/community-admin",
+              "roles/auditor",
+              "roles/ito-cpa"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/users",
+              "admin/periods",
+              "admin/configuration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/communities",
+              "api/periods",
+              "api/projects",
+              "api/renditions",
+              "api/documents",
+              "api/dashboard"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-tenant data isolation by community",
+    "Role-based access control (RBAC)",
+    "Project lifecycle and approval workflows",
+    "Budget period management and tracking",
+    "Expense accountability and renditions",
+    "Document management and evidence tracking",
+    "Real-time KPI dashboards with visualizations",
+    "JWT authentication with refresh tokens"
+  ],
+  "publicApiSurface": [
+    "/api/auth/ - Authentication endpoints",
+    "/api/comunidades/ - Community management",
+    "/api/periodos/ - Budget period management",
+    "/api/proyectos/ - Project CRUD and workflows",
+    "/api/rendiciones/ - Expense renditions",
+    "/api/documentos/ - Document uploads",
+    "/api/dashboard/ - KPI and analytics",
+    "/api/auditores/ - Auditor operations",
+    "/api/reportes/ - Report generation",
+    "/api/beneficiarios/ - Beneficiary management",
+    "/api/finanzas/ - Financial operations"
+  ]
+}
