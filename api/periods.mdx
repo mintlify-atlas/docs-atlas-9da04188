@@ -1,0 +1,348 @@
+---
+title: 'Periods API'
+description: 'API endpoints for managing fiscal periods and budget cycles'
+---
+
+The Periods API allows you to manage fiscal periods (periodos) with budget allocations and tracking.
+
+## Base URL
+
+All periods endpoints are prefixed with:
+
+```
+/api/periodos/
+```
+
+## Authentication
+
+All endpoints require JWT authentication. Include the token in the Authorization header:
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+---
+
+## Periods
+
+### List Periods
+
+Retrieve all periods for the authenticated user's community.
+
+```
+GET /api/periodos/periodos/
+```
+
+<Info>
+Periods are automatically filtered based on the authenticated user's community.
+</Info>
+
+<ResponseField name="id" type="integer">
+  Unique identifier for the period
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Name of the period (max 255 characters)
+</ResponseField>
+
+<ResponseField name="fecha_inicio" type="date">
+  Start date of the period (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="fecha_fin" type="date">
+  End date of the period (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="comunidad" type="integer">
+  ID of the associated community
+</ResponseField>
+
+<ResponseField name="comunidad_nombre" type="string">
+  Name of the associated community (read-only)
+</ResponseField>
+
+<ResponseField name="monto_asignado" type="decimal">
+  Budget allocated for this period (max 15 digits, 2 decimal places)
+</ResponseField>
+
+<ResponseField name="monto_anterior" type="decimal">
+  Remaining balance from previous period (max 15 digits, 2 decimal places)
+</ResponseField>
+
+<ResponseField name="activo" type="boolean">
+  Whether the period is currently active
+</ResponseField>
+
+<ResponseField name="saldo_remanente" type="decimal">
+  Remaining balance after paid renditions (calculated field, read-only)
+</ResponseField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.auditoriapp.com/api/periodos/periodos/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/periodos/periodos/', {
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+const data = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.auditoriapp.com/api/periodos/periodos/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+data = response.json()
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+[
+  {
+    "id": 1,
+    "nombre": "Periodo 2024",
+    "fecha_inicio": "2024-01-01",
+    "fecha_fin": "2024-12-31",
+    "comunidad": 1,
+    "comunidad_nombre": "Comunidad Los Andes",
+    "monto_asignado": "50000.00",
+    "monto_anterior": "5000.00",
+    "activo": true,
+    "saldo_remanente": "40000.00"
+  }
+]
+```
+</ResponseExample>
+
+### Get Period Details
+
+Retrieve detailed information about a specific period.
+
+```
+GET /api/periodos/periodos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the period
+</ParamField>
+
+### Create Period
+
+Create a new fiscal period.
+
+```
+POST /api/periodos/periodos/
+```
+
+<ParamField body="nombre" type="string" required>
+  Name of the period (e.g., "Periodo 2024")
+</ParamField>
+
+<ParamField body="fecha_inicio" type="date" required>
+  Start date in YYYY-MM-DD format
+</ParamField>
+
+<ParamField body="fecha_fin" type="date" required>
+  End date in YYYY-MM-DD format
+</ParamField>
+
+<ParamField body="monto_asignado" type="decimal" default="0.00">
+  Budget allocated for this period
+</ParamField>
+
+<ParamField body="monto_anterior" type="decimal" default="0.00">
+  Remaining balance from previous period
+</ParamField>
+
+<ParamField body="activo" type="boolean" default={true}>
+  Whether the period is active
+</ParamField>
+
+<Info>
+If the authenticated user has a community assigned, the period will be automatically associated with that community.
+</Info>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.auditoriapp.com/api/periodos/periodos/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nombre": "Periodo 2025",
+    "fecha_inicio": "2025-01-01",
+    "fecha_fin": "2025-12-31",
+    "monto_asignado": "60000.00",
+    "monto_anterior": "0.00",
+    "activo": true
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/periodos/periodos/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    nombre: 'Periodo 2025',
+    fecha_inicio: '2025-01-01',
+    fecha_fin: '2025-12-31',
+    monto_asignado: '60000.00',
+    monto_anterior: '0.00',
+    activo: true
+  })
+});
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auditoriapp.com/api/periodos/periodos/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'},
+    json={
+        'nombre': 'Periodo 2025',
+        'fecha_inicio': '2025-01-01',
+        'fecha_fin': '2025-12-31',
+        'monto_asignado': '60000.00',
+        'monto_anterior': '0.00',
+        'activo': True
+    }
+)
+```
+</CodeGroup>
+
+### Update Period
+
+Update an existing period.
+
+```
+PUT /api/periodos/periodos/{id}/
+PATCH /api/periodos/periodos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the period to update
+</ParamField>
+
+### Delete Period
+
+Delete a period.
+
+```
+DELETE /api/periodos/periodos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the period to delete
+</ParamField>
+
+---
+
+## Close Period
+
+Close a period and automatically create the next period with the remaining balance.
+
+```
+POST /api/periodos/periodos/{id}/cerrar/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the period to close
+</ParamField>
+
+<Warning>
+This action cannot be undone. The period must be active to be closed.
+</Warning>
+
+### Closing Process
+
+When a period is closed:
+
+1. **Validates** that the period is currently active
+2. **Calculates** total paid renditions from projects in this period
+3. **Computes** the remaining balance (total resources - paid expenses)
+4. **Marks** the period as inactive
+5. **Creates** a new period automatically with:
+   - Start date: day after current period ends
+   - End date: one year from new start date
+   - `monto_anterior`: remaining balance from closed period
+   - `monto_asignado`: 0 (to be set by treasurer)
+   - Active status
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.auditoriapp.com/api/periodos/periodos/1/cerrar/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/periodos/periodos/1/cerrar/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+const data = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auditoriapp.com/api/periodos/periodos/1/cerrar/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+data = response.json()
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+{
+  "message": "Periodo cerrado exitosamente.",
+  "resumen": {
+    "total_recursos": "55000.00",
+    "gastos_pagados": "42000.00",
+    "saldo_remanente": "13000.00"
+  },
+  "siguiente_periodo": {
+    "id": 2,
+    "nombre": "Periodo 2025",
+    "fecha_inicio": "2025-01-01",
+    "fecha_fin": "2025-12-31",
+    "comunidad": 1,
+    "comunidad_nombre": "Comunidad Los Andes",
+    "monto_asignado": "0.00",
+    "monto_anterior": "13000.00",
+    "activo": true,
+    "saldo_remanente": "13000.00"
+  }
+}
+```
+</ResponseExample>
+
+### Error Response
+
+<ResponseExample>
+```json Already Closed
+{
+  "error": "El periodo ya está cerrado."
+}
+```
+</ResponseExample>
+
+## Permissions
+
+- All endpoints require authentication
+- Users can only access periods from their associated community
+- Period closure is available to authenticated users with community access

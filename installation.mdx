@@ -1,0 +1,743 @@
+---
+title: Installation Guide
+description: Complete setup instructions for Auditoriapp development and production environments
+---
+
+## Overview
+
+This guide covers the complete installation process for Auditoriapp, including backend (Django), frontend (React/Vite), database configuration, and production deployment considerations.
+
+## System Requirements
+
+### Development Environment
+
+- **Python**: 3.11 or higher
+- **Node.js**: 18.x or higher
+- **npm**: 9.x or higher
+- **Database**: PostgreSQL 13+ or MySQL 8.0+ (SQLite for development)
+- **OS**: Linux, macOS, or Windows with WSL2
+
+### Production Environment
+
+- **Server**: 2+ CPU cores, 4GB+ RAM
+- **Database**: PostgreSQL 13+ (recommended) or MySQL 8.0+
+- **Web Server**: Nginx or Apache
+- **Process Manager**: Gunicorn + Supervisor/systemd
+- **Optional**: Redis for Celery background tasks
+
+## Backend Installation
+
+### Project Structure
+
+```bash
+Auditoriapp/
+├── backend/
+│   ├── core/            # Main configuration and Middlewares
+│   ├── usuarios/        # Authentication and Roles
+│   ├── comunidades/     # Multi-tenant logic
+│   ├── proyectos/       # Core business: Projects and Budgets
+│   ├── rendiciones/     # Expense management and evidence
+│   ├── periodos/        # Budget periods
+│   ├── documentos/      # Document management
+│   ├── dashboard/       # KPI and analytics
+│   ├── auditores/       # Auditor management
+│   ├── reportes/        # Reporting
+│   └── manage.py
+└── frontend/
+    └── src/
+```
+
+### Clone Repository
+
+<CodeGroup>
+```bash HTTPS
+git clone https://github.com/yourusername/auditoriapp.git
+cd auditoriapp
+```
+
+```bash SSH
+git clone git@github.com:yourusername/auditoriapp.git
+cd auditoriapp
+```
+</CodeGroup>
+
+### Python Virtual Environment
+
+<Steps>
+  <Step title="Create Virtual Environment">
+    Create an isolated Python environment:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    cd backend
+    python -m venv venv
+    source venv/bin/activate
+    ```
+    
+    ```bash Windows
+    cd backend
+    python -m venv venv
+    venv\Scripts\activate
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Install Dependencies">
+    Install all required Python packages:
+    
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    Key dependencies from `requirements.txt`:
+    
+    ```txt title="backend/requirements.txt"
+    # Django Core
+    Django==5.0.7
+    djangorestframework==3.15.2
+    django-cors-headers==4.3.1
+    django-filter==23.5
+    
+    # Database Drivers
+    PyMySQL==1.1.1
+    mysqlclient==2.2.7
+    
+    # Authentication & Authorization  
+    djangorestframework-simplejwt==5.3.0
+    
+    # File Management
+    Pillow==10.4.0
+    
+    # API Documentation
+    drf-spectacular==0.27.2
+    drf-spectacular-sidecar==2024.12.1
+    
+    # Data Processing & Export
+    openpyxl==3.1.5
+    reportlab==4.2.2
+    
+    # Environment Management
+    python-decouple==3.8
+    
+    # Celery for Background Tasks
+    celery==5.3.4
+    redis==5.0.7
+    django-celery-beat==2.6.0
+    
+    # Production
+    gunicorn==22.0.0
+    whitenoise==6.7.0
+    ```
+  </Step>
+</Steps>
+
+### Database Configuration
+
+<Tabs>
+  <Tab title="PostgreSQL (Recommended)">
+    **Install PostgreSQL**
+    
+    <CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+    sudo systemctl start postgresql
+    ```
+    
+    ```bash macOS (Homebrew)
+    brew install postgresql@15
+    brew services start postgresql@15
+    ```
+    
+    ```bash Windows
+    # Download installer from https://www.postgresql.org/download/windows/
+    ```
+    </CodeGroup>
+    
+    **Create Database and User**
+    
+    ```bash
+    sudo -u postgres psql
+    ```
+    
+    ```sql
+    CREATE DATABASE auditoria_db;
+    CREATE USER auditoria_user WITH PASSWORD 'secure_password_here';
+    ALTER ROLE auditoria_user SET client_encoding TO 'utf8';
+    ALTER ROLE auditoria_user SET default_transaction_isolation TO 'read committed';
+    ALTER ROLE auditoria_user SET timezone TO 'UTC';
+    GRANT ALL PRIVILEGES ON DATABASE auditoria_db TO auditoria_user;
+    \q
+    ```
+    
+    **Update settings.py**
+    
+    ```python title="backend/auditoriapp/settings.py"
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "auditoria_db",
+            "USER": "auditoria_user",
+            "PASSWORD": "secure_password_here",
+            "HOST": "localhost",
+            "PORT": "5432",
+        }
+    }
+    ```
+    
+    **Install PostgreSQL adapter**
+    
+    ```bash
+    pip install psycopg2-binary
+    ```
+  </Tab>
+  
+  <Tab title="MySQL">
+    **Install MySQL**
+    
+    <CodeGroup>
+    ```bash Ubuntu/Debian
+    sudo apt update
+    sudo apt install mysql-server
+    sudo systemctl start mysql
+    sudo mysql_secure_installation
+    ```
+    
+    ```bash macOS (Homebrew)
+    brew install mysql
+    brew services start mysql
+    ```
+    </CodeGroup>
+    
+    **Create Database and User**
+    
+    ```bash
+    sudo mysql -u root -p
+    ```
+    
+    ```sql
+    CREATE DATABASE auditoria_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    CREATE USER 'auditoria_user'@'localhost' IDENTIFIED BY 'secure_password_here';
+    GRANT ALL PRIVILEGES ON auditoria_db.* TO 'auditoria_user'@'localhost';
+    FLUSH PRIVILEGES;
+    EXIT;
+    ```
+    
+    **Update settings.py**
+    
+    ```python title="backend/auditoriapp/settings.py"
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": "auditoria_db",
+            "USER": "auditoria_user",
+            "PASSWORD": "secure_password_here",
+            "HOST": "localhost",
+            "PORT": "3306",
+            "OPTIONS": {
+                "charset": "utf8mb4",
+            },
+        }
+    }
+    ```
+    
+    MySQL drivers are already in requirements.txt:
+    ```txt
+    PyMySQL==1.1.1
+    mysqlclient==2.2.7
+    ```
+  </Tab>
+  
+  <Tab title="SQLite (Development Only)">
+    SQLite is configured by default for quick development:
+    
+    ```python title="backend/auditoriapp/settings.py"
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
+    ```
+    
+    <Warning>
+      SQLite is **not recommended for production** due to:
+      - Limited concurrent write performance
+      - No built-in user management
+      - File-based storage not suitable for cloud deployments
+      
+      Use PostgreSQL or MySQL for production environments.
+    </Warning>
+  </Tab>
+</Tabs>
+
+### Environment Variables
+
+Create a `.env` file in the `backend/` directory with the following configuration:
+
+```bash title="backend/.env"
+# Django Settings
+SECRET_KEY=your-secret-key-here-change-in-production
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database Configuration
+DB_ENGINE=django.db.backends.postgresql  # or django.db.backends.mysql
+DB_NAME=auditoria_db
+DB_USER=auditoria_user
+DB_PASSWORD=secure_password_here
+DB_HOST=localhost
+DB_PORT=5432  # 3306 for MySQL
+
+# JWT Settings
+JWT_ACCESS_TOKEN_LIFETIME=60  # minutes
+JWT_REFRESH_TOKEN_LIFETIME=1440  # minutes (24 hours)
+
+# CORS Settings
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+
+# Media Files
+MEDIA_ROOT=/var/www/auditoriapp/media
+MEDIA_URL=/media/
+
+# Static Files
+STATIC_ROOT=/var/www/auditoriapp/static
+STATIC_URL=/static/
+
+# Celery (Optional)
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+```
+
+<Note>
+  Based on the source code, environment variables can be loaded using `python-decouple` which is included in requirements.txt. Update `settings.py` to use `config()` from decouple for reading these values.
+</Note>
+
+### Run Migrations
+
+Create all database tables:
+
+```bash
+python manage.py migrate
+```
+
+This creates tables for:
+- **usuarios**: Custom user model with roles and community association
+- **comunidades**: Community organizations (multi-tenant)
+- **periodos**: Budget periods with date ranges and amounts
+- **proyectos**: Projects with states and governance fields
+- **rendiciones**: Financial renditions and documentation
+- **documentos**: File upload management
+- And all other Django apps
+
+### Create Superuser
+
+```bash
+python manage.py createsuperuser
+```
+
+Enter username, email, and password when prompted.
+
+### Collect Static Files
+
+For production deployments:
+
+```bash
+python manage.py collectstatic --noinput
+```
+
+This collects all static files (CSS, JS, images) to `STATIC_ROOT` for serving by Nginx/Apache.
+
+### Start Development Server
+
+```bash
+python manage.py runserver
+```
+
+Backend API available at: `http://localhost:8000`
+
+## Frontend Installation
+
+### Install Dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+Key dependencies from `package.json`:
+
+```json title="frontend/package.json"
+{
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.17",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.4",
+    "recharts": "^3.5.1",
+    "tailwindcss": "^4.1.17"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.4",
+    "daisyui": "^5.5.4",
+    "vite": "^7.1.7"
+  }
+}
+```
+
+### Vite Configuration
+
+The frontend uses Vite for fast development and optimized production builds:
+
+```js title="frontend/vite.config.js"
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite'
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+});
+```
+
+### API Endpoint Configuration
+
+Update API endpoints if needed. By default, the frontend connects to:
+
+```jsx title="frontend/src/pages/Login.jsx" {16}
+const res = await fetch("http://localhost:8000/api/auth/login/", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ username, password }),
+});
+```
+
+For production, update to your domain:
+```jsx
+const API_BASE_URL = import.meta.env.VITE_API_URL || "https://api.yourdomain.com";
+```
+
+### Development Server
+
+```bash
+npm run dev
+```
+
+Frontend available at: `http://localhost:5173`
+
+### Production Build
+
+```bash
+npm run build
+```
+
+Optimized files output to `frontend/dist/`
+
+## CORS Configuration
+
+The backend is configured to allow requests from the frontend:
+
+```python title="backend/auditoriapp/settings.py" {141-144,173-179}
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173", 
+    "http://127.0.0.1:5173",
+]
+
+# For production, add your frontend domain:
+# CORS_ALLOWED_ORIGINS = [
+#     "https://app.yourdomain.com",
+# ]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# Development only - remove in production:
+CORS_ALLOW_ALL_ORIGINS = True
+```
+
+<Warning>
+  Remove `CORS_ALLOW_ALL_ORIGINS = True` in production and explicitly list allowed origins.
+</Warning>
+
+## Production Deployment
+
+### Gunicorn Configuration
+
+Gunicorn is included in requirements for serving Django in production:
+
+```bash title="Start Gunicorn"
+gunicorn auditoriapp.wsgi:application \
+  --bind 0.0.0.0:8000 \
+  --workers 4 \
+  --threads 2 \
+  --timeout 120 \
+  --access-logfile /var/log/auditoriapp/access.log \
+  --error-logfile /var/log/auditoriapp/error.log
+```
+
+### Nginx Configuration
+
+```nginx title="/etc/nginx/sites-available/auditoriapp"
+server {
+    listen 80;
+    server_name api.yourdomain.com;
+    
+    client_max_body_size 50M;
+    
+    # Static files
+    location /static/ {
+        alias /var/www/auditoriapp/static/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Media files (uploads)
+    location /media/ {
+        alias /var/www/auditoriapp/media/;
+        expires 7d;
+    }
+    
+    # API proxy
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+
+# Frontend
+server {
+    listen 80;
+    server_name app.yourdomain.com;
+    
+    root /var/www/auditoriapp/frontend/dist;
+    index index.html;
+    
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+}
+```
+
+### SSL with Let's Encrypt
+
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d api.yourdomain.com -d app.yourdomain.com
+```
+
+### Systemd Service
+
+```ini title="/etc/systemd/system/auditoriapp.service"
+[Unit]
+Description=Auditoriapp Gunicorn Service
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/auditoriapp/backend
+Environment="PATH=/var/www/auditoriapp/backend/venv/bin"
+ExecStart=/var/www/auditoriapp/backend/venv/bin/gunicorn \
+  --workers 4 \
+  --bind unix:/run/auditoriapp.sock \
+  auditoriapp.wsgi:application
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start auditoriapp
+sudo systemctl enable auditoriapp
+```
+
+### Production Settings Checklist
+
+<Steps>
+  <Step title="Security Settings">
+    Update `settings.py` for production:
+    
+    ```python
+    DEBUG = False
+    SECRET_KEY = os.getenv('SECRET_KEY')  # Use environment variable
+    ALLOWED_HOSTS = ['api.yourdomain.com', 'yourdomain.com']
+    
+    # HTTPS settings
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    ```
+  </Step>
+  
+  <Step title="Database Backups">
+    Set up automated PostgreSQL backups:
+    
+    ```bash
+    # Backup script
+    pg_dump -U auditoria_user auditoria_db > backup_$(date +%Y%m%d_%H%M%S).sql
+    ```
+  </Step>
+  
+  <Step title="Static Files">
+    Use WhiteNoise (included in requirements) for serving static files:
+    
+    ```python title="settings.py"
+    MIDDLEWARE = [
+        'django.middleware.security.SecurityMiddleware',
+        'whitenoise.middleware.WhiteNoiseMiddleware',  # Add this
+        # ... other middleware
+    ]
+    
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+    ```
+  </Step>
+  
+  <Step title="Monitoring">
+    Set up logging and monitoring:
+    
+    ```python
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'file': {
+                'level': 'ERROR',
+                'class': 'logging.FileHandler',
+                'filename': '/var/log/auditoriapp/django.log',
+            },
+        },
+        'loggers': {
+            'django': {
+                'handlers': ['file'],
+                'level': 'ERROR',
+                'propagate': True,
+            },
+        },
+    }
+    ```
+  </Step>
+</Steps>
+
+## Optional: Celery Setup
+
+For background tasks (email notifications, report generation):
+
+### Install Redis
+
+```bash
+sudo apt install redis-server
+sudo systemctl start redis
+```
+
+### Start Celery Worker
+
+```bash
+celery -A auditoriapp worker --loglevel=info
+```
+
+### Start Celery Beat (Scheduled Tasks)
+
+```bash
+celery -A auditoriapp beat --loglevel=info
+```
+
+## Verification
+
+<Steps>
+  <Step title="Backend Health Check">
+    ```bash
+    curl http://localhost:8000/api/
+    ```
+    
+    Should return API endpoints or 200 OK.
+  </Step>
+  
+  <Step title="Database Connection">
+    ```bash
+    python manage.py dbshell
+    ```
+    
+    Should connect to your database.
+  </Step>
+  
+  <Step title="Frontend Build">
+    ```bash
+    npm run build
+    ```
+    
+    Should complete without errors and create `dist/` folder.
+  </Step>
+  
+  <Step title="API Documentation">
+    Visit `http://localhost:8000/api/schema/swagger-ui/`
+    
+    Should display interactive API documentation.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Database connection errors">
+    - Verify database credentials in `.env`
+    - Check database service is running: `sudo systemctl status postgresql`
+    - Ensure database user has proper permissions
+    - Check `pg_hba.conf` for PostgreSQL authentication settings
+  </Accordion>
+  
+  <Accordion title="CORS errors in browser">
+    - Verify `CORS_ALLOWED_ORIGINS` includes your frontend URL
+    - Check `django-cors-headers` is in `INSTALLED_APPS`
+    - Ensure `CorsMiddleware` is before `CommonMiddleware` in settings
+    - Clear browser cache and local storage
+  </Accordion>
+  
+  <Accordion title="Static files not loading">
+    - Run `python manage.py collectstatic`
+    - Check `STATIC_ROOT` and `STATIC_URL` settings
+    - Verify Nginx/Apache configuration for `/static/` location
+    - Check file permissions: `sudo chown -R www-data:www-data /var/www/auditoriapp/static`
+  </Accordion>
+  
+  <Accordion title="JWT token errors">
+    - Verify `SECRET_KEY` is set and consistent
+    - Check token expiry in `SIMPLE_JWT` settings
+    - Clear localStorage in browser and re-login
+    - Ensure system time is synchronized (JWT is time-sensitive)
+  </Accordion>
+  
+  <Accordion title="File upload errors">
+    - Check `MEDIA_ROOT` directory exists and is writable
+    - Verify `client_max_body_size` in Nginx config
+    - Check Django `FILE_UPLOAD_MAX_MEMORY_SIZE` setting
+    - Ensure Pillow is installed for image processing
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Follow the quick start guide to create your first project
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Explore the complete API documentation
+  </Card>
+  
+  <Card title="User Management" icon="users" href="/admin/users">
+    Learn about roles, permissions, and multi-tenancy
+  </Card>
+</CardGroup>

@@ -1,0 +1,429 @@
+---
+title: "Authentication"
+description: "JWT token-based authentication for the Auditoriapp API"
+---
+
+## Overview
+
+Auditoriapp uses JWT (JSON Web Token) authentication powered by `djangorestframework-simplejwt`. This provides stateless, secure authentication with access and refresh tokens.
+
+## Authentication Flow
+
+<Steps>
+  <Step title="Obtain Tokens">
+    Send username and password to get access and refresh tokens
+  </Step>
+  <Step title="Use Access Token">
+    Include the access token in the Authorization header for API requests
+  </Step>
+  <Step title="Refresh When Expired">
+    Use the refresh token to get a new access token when it expires
+  </Step>
+</Steps>
+
+## Token Configuration
+
+The JWT tokens are configured with the following lifetimes:
+
+```python backend/auditoriapp/settings.py
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+```
+
+| Token Type | Lifetime | Purpose |
+|------------|----------|---------|
+| Access Token | 60 minutes | Used for API requests |
+| Refresh Token | 7 days | Used to obtain new access tokens |
+
+## Obtaining Tokens
+
+### Endpoint
+
+```
+POST /api/token/
+```
+
+### Request
+
+<ParamField path="username" type="string" required>
+  User's username
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  User's password
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST http://127.0.0.1:8000/api/token/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin_norte",
+    "password": "123456"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('http://127.0.0.1:8000/api/token/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    username: 'admin_norte',
+    password: '123456'
+  })
+});
+
+const data = await response.json();
+console.log('Access Token:', data.access);
+console.log('Refresh Token:', data.refresh);
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'http://127.0.0.1:8000/api/token/',
+    json={
+        'username': 'admin_norte',
+        'password': '123456'
+    }
+)
+
+data = response.json()
+access_token = data['access']
+refresh_token = data['refresh']
+```
+
+</CodeGroup>
+
+### Response
+
+<ResponseField name="access" type="string">
+  JWT access token (valid for 60 minutes)
+</ResponseField>
+
+<ResponseField name="refresh" type="string">
+  JWT refresh token (valid for 7 days)
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  User information
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User ID
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      Username
+    </ResponseField>
+    <ResponseField name="nombre" type="string">
+      User's full name
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      User's email address
+    </ResponseField>
+    <ResponseField name="rol" type="string">
+      User role (admin, auditor, usuario, directorio, presidente, ito, cpa)
+    </ResponseField>
+    <ResponseField name="comunidad" type="object">
+      User's associated community (null if not assigned)
+      <Expandable title="properties">
+        <ResponseField name="id" type="string">
+          Community ID
+        </ResponseField>
+        <ResponseField name="nombre" type="string">
+          Community name
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json Example Response
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...",
+  "user": {
+    "id": "1",
+    "username": "admin_norte",
+    "nombre": "Admin Comunidad Norte",
+    "email": "admin@norte.com",
+    "rol": "admin",
+    "comunidad": {
+      "id": "1",
+      "nombre": "Lickanantay Norte"
+    }
+  }
+}
+```
+
+## Using Access Tokens
+
+Include the access token in the `Authorization` header with the `Bearer` prefix for all authenticated requests:
+
+<CodeGroup>
+
+```bash cURL
+curl -X GET http://127.0.0.1:8000/api/proyectos/ \
+  -H "Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+```
+
+```javascript JavaScript
+const response = await fetch('http://127.0.0.1:8000/api/proyectos/', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  }
+});
+
+const projects = await response.json();
+```
+
+```python Python
+import requests
+
+headers = {
+    'Authorization': f'Bearer {access_token}',
+    'Content-Type': 'application/json'
+}
+
+response = requests.get(
+    'http://127.0.0.1:8000/api/proyectos/',
+    headers=headers
+)
+
+projects = response.json()
+```
+
+</CodeGroup>
+
+## Refreshing Tokens
+
+When the access token expires (after 60 minutes), use the refresh token to obtain a new access token without requiring the user to log in again.
+
+### Endpoint
+
+```
+POST /api/token/refresh/
+```
+
+### Request
+
+<ParamField path="refresh" type="string" required>
+  The refresh token obtained during login
+</ParamField>
+
+### Example Request
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST http://127.0.0.1:8000/api/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('http://127.0.0.1:8000/api/token/refresh/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    refresh: refreshToken
+  })
+});
+
+const data = await response.json();
+const newAccessToken = data.access;
+```
+
+```python Python
+response = requests.post(
+    'http://127.0.0.1:8000/api/token/refresh/',
+    json={'refresh': refresh_token}
+)
+
+new_access_token = response.json()['access']
+```
+
+</CodeGroup>
+
+### Response
+
+<ResponseField name="access" type="string">
+  New JWT access token (valid for 60 minutes)
+</ResponseField>
+
+```json Example Response
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9..."
+}
+```
+
+## Custom Token View
+
+Auditoriapp uses a custom token view that extends the default SimpleJWT implementation to include user and community information in the response:
+
+```python backend/usuarios/views.py
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_view(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    user = authenticate(username=username, password=password)
+    if user:
+        serializer = CustomTokenObtainPairSerializer()
+        tokens = serializer.get_token(user)
+        
+        return Response({
+            'access': str(tokens.access_token),
+            'refresh': str(tokens),
+            'user': {
+                'id': str(user.id),
+                'username': user.username,
+                'nombre': user.nombre,
+                'email': user.email,
+                'rol': user.rol,
+                'comunidad': {
+                    'id': str(user.comunidad.id),
+                    'nombre': user.comunidad.nombre
+                } if user.comunidad else None
+            }
+        })
+```
+
+## Error Responses
+
+### Invalid Credentials
+
+```json
+{
+  "error": "Credenciales inválidas"
+}
+```
+
+**Status Code**: `401 Unauthorized`
+
+### Missing Fields
+
+```json
+{
+  "error": "Username y password son requeridos"
+}
+```
+
+**Status Code**: `400 Bad Request`
+
+### Expired Token
+
+```json
+{
+  "detail": "Given token not valid for any token type",
+  "code": "token_not_valid",
+  "messages": [
+    {
+      "token_class": "AccessToken",
+      "token_type": "access",
+      "message": "Token is invalid or expired"
+    }
+  ]
+}
+```
+
+**Status Code**: `401 Unauthorized`
+
+## Frontend Integration
+
+Here's how the authentication flow is typically implemented in the React frontend:
+
+```javascript frontend/src/services/auth.js
+// Login and store tokens
+export const login = async (username, password) => {
+  const response = await fetch('http://127.0.0.1:8000/api/token/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  
+  const data = await response.json();
+  
+  // Store tokens in localStorage
+  localStorage.setItem('access_token', data.access);
+  localStorage.setItem('refresh_token', data.refresh);
+  localStorage.setItem('user', JSON.stringify(data.user));
+  
+  return data;
+};
+
+// Add token to request headers
+export const getAuthHeaders = () => ({
+  'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+  'Content-Type': 'application/json'
+});
+
+// Refresh access token
+export const refreshAccessToken = async () => {
+  const refreshToken = localStorage.getItem('refresh_token');
+  
+  const response = await fetch('http://127.0.0.1:8000/api/token/refresh/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh: refreshToken })
+  });
+  
+  const data = await response.json();
+  localStorage.setItem('access_token', data.access);
+  
+  return data.access;
+};
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Store Securely" icon="lock">
+    Store tokens in httpOnly cookies or secure storage, not localStorage in production
+  </Card>
+  <Card title="Use HTTPS" icon="shield">
+    Always use HTTPS in production to prevent token interception
+  </Card>
+  <Card title="Rotate Tokens" icon="rotate">
+    Implement token rotation for enhanced security
+  </Card>
+  <Card title="Handle Expiration" icon="clock">
+    Implement automatic token refresh before expiration
+  </Card>
+</CardGroup>
+
+<Warning>
+Never commit tokens or credentials to version control. Always use environment variables for sensitive configuration.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="API Overview" icon="book" href="/api/overview">
+    Learn about API conventions and available endpoints
+  </Card>
+  <Card title="Projects API" icon="diagram-project" href="/api/projects">
+    Start managing projects via the API
+  </Card>
+</CardGroup>

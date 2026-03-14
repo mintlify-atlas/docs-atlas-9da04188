@@ -1,0 +1,434 @@
+---
+title: Expense Renditions
+description: Submit, review, and approve expense renditions with document evidence and multi-state workflows
+---
+
+## Overview
+
+Renditions (`Rendicion`) are expense accountability submissions tied to projects. They track actual expenditures with supporting documentation through a rigorous review process from submission to payment.
+
+## Rendicion Model
+
+The rendition model captures expense details and review workflow:
+
+```python
+class Rendicion(models.Model):
+    ESTADO_RENDICION = [
+        ('pendiente', 'Pendiente'),
+        ('aprobado', 'Aprobado'),
+        ('observado', 'Con Observaciones'),
+        ('rechazado', 'Rechazado'),
+        ('pagado', 'Pagado'),
+    ]
+    
+    proyecto = models.ForeignKey('proyectos.Proyecto', on_delete=models.CASCADE)
+    descripcion = models.TextField(blank=True, null=True)
+    monto_rendido = models.DecimalField(max_digits=12, decimal_places=2)
+    numero_documento = models.CharField(max_length=50, help_text="Número de factura o boleta")
+    fecha_rendicion = models.DateField()
+    documentos_adjuntos = models.ManyToManyField('documentos.Documento', 
+                                                related_name='rendiciones_adjuntas')
+    
+    # Review fields
+    estado = models.CharField(max_length=20, choices=ESTADO_RENDICION, default='pendiente')
+    observacion = models.TextField(blank=True, null=True)
+    revisor = models.ForeignKey('usuarios.CustomUser', on_delete=models.SET_NULL, 
+                               null=True, related_name='rendiciones_revisadas')
+    fecha_revision = models.DateTimeField(null=True, blank=True)
+    comprobante_traspaso = models.FileField(upload_to='comprobantes_pago/', null=True, blank=True)
+```
+
+### Core Fields
+
+<CardGroup cols={2}>
+  <Card title="Expense Details" icon="receipt">
+    **proyecto**: Associated project (ForeignKey)  
+    **descripcion**: Expense description  
+    **monto_rendido**: Amount being rendered (12 digits, 2 decimals)  
+    **numero_documento**: Invoice or receipt number  
+    **fecha_rendicion**: Submission date
+  </Card>
+  
+  <Card title="Review Tracking" icon="clipboard-check">
+    **estado**: Current rendition state  
+    **observacion**: CPA/auditor comments  
+    **revisor**: User who reviewed (ForeignKey)  
+    **fecha_revision**: Review timestamp  
+    **comprobante_traspaso**: Payment transfer proof
+  </Card>
+</CardGroup>
+
+## Rendition States
+
+Renditions progress through five states during their lifecycle:
+
+<Steps>
+  <Step title="Pendiente (Pending)">
+    Initial state upon submission. Awaiting CPA review.
+    
+    ```python
+    rendicion = Rendicion.objects.create(
+        proyecto=proyecto,
+        monto_rendido=1500000,
+        estado='pendiente'
+    )
+    ```
+  </Step>
+  
+  <Step title="Aprobado (Approved)">
+    CPA has validated the expense. Ready for payment processing.
+    
+    <Note>Approved renditions count toward `total_rendido_aprobado` in dashboard KPIs.</Note>
+  </Step>
+  
+  <Step title="Observado (With Observations)">
+    CPA requires corrections or additional documentation. Submitter must address observations and resubmit.
+    
+    <Warning>Observed renditions generate alerts on the dashboard until resolved.</Warning>
+  </Step>
+  
+  <Step title="Rechazado (Rejected)">
+    CPA has rejected the rendition. No payment will be processed.
+  </Step>
+  
+  <Step title="Pagado (Paid)">
+    Payment has been transferred to the provider. Final state.
+    
+    <Note>Only 'pagado' renditions are counted in budget consumption calculations.</Note>
+  </Step>
+</Steps>
+
+## Document Evidence Requirements
+
+Every rendition must include supporting documentation:
+
+```python
+documentos_adjuntos = models.ManyToManyField('documentos.Documento', 
+                                            related_name='rendiciones_adjuntas')
+```
+
+<Tabs>
+  <Tab title="Required Documents">
+    - **Factura/Boleta**: Tax invoice or receipt
+    - **Comprobante de Pago**: Payment proof (if reimbursement)
+    - **Fotografías**: Evidence of work/purchase (when applicable)
+    - **Contrato**: Contract (for service providers)
+  </Tab>
+  
+  <Tab title="Attachment Process">
+    ```python
+    # Using serializer with documentos_ids
+    {
+      "proyecto": 5,
+      "monto_rendido": "2500000",
+      "numero_documento": "FAC-001234",
+      "fecha_rendicion": "2024-03-15",
+      "documentos_ids": [45, 46, 47]
+    }
+    ```
+    
+    The serializer handles the ManyToMany relationship:
+    
+    ```python
+    documentos_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        write_only=True,
+        queryset=Documento.objects.all(),
+        source='documentos_adjuntos'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Review Workflow
+
+CPA or authorized auditors can review renditions:
+
+```python
+@action(detail=True, methods=['post'])
+def revisar(self, request, pk=None):
+    rendicion = self.get_object()
+    user = request.user
+    
+    # Validate Role (Only CPA or Admin)
+    if user.rol not in ['cpa', 'admin', 'CPA Revisor']:
+        return Response({'error': 'No tiene permisos para revisar'}, status=403)
+    
+    nuevo_estado = request.data.get('estado')
+    observacion = request.data.get('observacion', '')
+    
+    if nuevo_estado not in ['aprobado', 'observado', 'rechazado']:
+        return Response({'error': 'Estado inválido'}, status=400)
+    
+    rendicion.estado = nuevo_estado
+    rendicion.observacion = observacion
+    rendicion.revisor = user
+    rendicion.fecha_revision = timezone.now()
+    rendicion.save()
+    
+    return Response({'status': 'ok', 'estado': rendicion.estado})
+```
+
+<Warning>
+  **Permission Enforcement**: Only users with `rol` in `['cpa', 'admin', 'CPA Revisor']` can execute the `revisar` action.
+</Warning>
+
+## API Endpoints
+
+### List & Filter Renditions
+
+```bash
+# Get all renditions for user's community
+GET /api/rendiciones/
+
+# Filter by project
+GET /api/rendiciones/?proyecto=5
+
+# Filter by state
+GET /api/rendiciones/?estado=pendiente
+
+# Combined filters
+GET /api/rendiciones/?proyecto=5&estado=aprobado
+```
+
+The viewset uses DjangoFilterBackend:
+
+```python
+class RendicionViewSet(viewsets.ModelViewSet):
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['proyecto', 'estado']
+```
+
+### Create Rendition
+
+```bash
+POST /api/rendiciones/
+{
+  "proyecto": 8,
+  "descripcion": "Compra de materiales de construcción",
+  "monto_rendido": "3500000",
+  "numero_documento": "BOL-789456",
+  "fecha_rendicion": "2024-03-20",
+  "documentos_ids": [50, 51]
+}
+```
+
+Response includes serialized documents:
+
+```json
+{
+  "id": 42,
+  "proyecto": 8,
+  "proyecto_nombre": "Mejoramiento Plaza Comunitaria",
+  "descripcion": "Compra de materiales de construcción",
+  "monto_rendido": "3500000.00",
+  "numero_documento": "BOL-789456",
+  "fecha_rendicion": "2024-03-20",
+  "estado": "pendiente",
+  "documentos_adjuntos": [
+    {
+      "id": 50,
+      "nombre": "Boleta-789456.pdf",
+      "tipo": "Factura",
+      "archivo": "/media/documentos/Boleta-789456.pdf"
+    },
+    {
+      "id": 51,
+      "nombre": "Fotos-materiales.jpg",
+      "tipo": "Evidencia",
+      "archivo": "/media/documentos/Fotos-materiales.jpg"
+    }
+  ],
+  "observacion": null,
+  "revisor": null,
+  "fecha_revision": null
+}
+```
+
+### Review Rendition
+
+```bash
+POST /api/rendiciones/{id}/revisar/
+{
+  "estado": "aprobado",
+  "observacion": "Documentación completa y correcta"
+}
+```
+
+```bash
+# Reject with observations
+POST /api/rendiciones/{id}/revisar/
+{
+  "estado": "observado",
+  "observacion": "Falta comprobante de pago. Adjuntar transferencia bancaria."
+}
+```
+
+## Permissions & Scoping
+
+Renditions are scoped to the user's community through the project relationship:
+
+```python
+class RendicionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return Rendicion.objects.filter(proyecto__comunidad=user.comunidad)
+        return Rendicion.objects.none()
+```
+
+<Note>
+  The queryset uses a double-underscore lookup `proyecto__comunidad` to filter renditions by the associated project's community.
+</Note>
+
+## Dashboard Integration
+
+Renditions power key dashboard metrics:
+
+```python
+# From dashboard/views.py
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_kpis(request):
+    comunidad = request.user.comunidad
+    
+    # Total paid amount
+    total_pagado = Rendicion.objects.filter(
+        proyecto__comunidad=comunidad, 
+        estado='pagado'
+    ).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+    
+    # Total submitted
+    total_rendido_ingresado = rendiciones_qs.aggregate(
+        Sum('monto_rendido')
+    )['monto_rendido__sum'] or 0
+    
+    # Total approved
+    total_rendido_aprobado = rendiciones_qs.filter(
+        estado='aprobado'
+    ).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+    
+    # Alerts
+    rendiciones_observadas = rendiciones_qs.filter(estado='observado').count()
+    rendiciones_pendientes = rendiciones_qs.filter(estado='pendiente').count()
+```
+
+### Chart Visualization
+
+```python
+"charts": {
+    "rendiciones": [
+        {"name": "Aprobado", "value": rendiciones_qs.filter(estado='aprobado').count()},
+        {"name": "Observado", "value": rendiciones_qs.filter(estado='observado').count()},
+        {"name": "Pendiente", "value": rendiciones_qs.filter(estado='pendiente').count()},
+        {"name": "Rechazado", "value": rendiciones_qs.filter(estado='rechazado').count()},
+    ]
+}
+```
+
+Displayed in the frontend with Recharts:
+
+```jsx
+<PieChart>
+  <Pie
+    data={charts.rendiciones.filter(d => d.value > 0)}
+    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+    outerRadius={80}
+    dataKey="value"
+  >
+    {charts.rendiciones.filter(d => d.value > 0).map((entry, index) => (
+      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+    ))}
+  </Pie>
+  <Tooltip />
+  <Legend />
+</PieChart>
+```
+
+## Validation Rules
+
+<CardGroup cols={2}>
+  <Card title="Budget Limits" icon="exclamation-triangle">
+    Ensure `monto_rendido` doesn't cause project to exceed its `presupuesto_total`. Validate before creation:
+    
+    ```python
+    total_rendido = proyecto.rendicion_set.aggregate(
+        Sum('monto_rendido')
+    )['monto_rendido__sum'] or 0
+    
+    if total_rendido + new_monto > proyecto.presupuesto_total:
+        raise ValidationError("Excede presupuesto del proyecto")
+    ```
+  </Card>
+  
+  <Card title="Document Evidence" icon="file-invoice">
+    Frontend should require at least one document attachment. Backend can enforce:
+    
+    ```python
+    if not documentos_ids:
+        raise ValidationError("Debe adjuntar al menos un documento")
+    ```
+  </Card>
+  
+  <Card title="Date Validation" icon="calendar-xmark">
+    `fecha_rendicion` should be within the project's period dates:
+    
+    ```python
+    if fecha_rendicion < proyecto.periodo.fecha_inicio or \
+       fecha_rendicion > proyecto.periodo.fecha_fin:
+        raise ValidationError("Fecha fuera del periodo del proyecto")
+    ```
+  </Card>
+  
+  <Card title="State Transitions" icon="code-branch">
+    Only allow state changes through the `revisar` action. Direct updates to `estado` should be read-only:
+    
+    ```python
+    read_only_fields = ['estado', 'observacion', 'revisor', 'fecha_revision']
+    ```
+  </Card>
+</CardGroup>
+
+## Payment Processing
+
+When a rendition is paid, upload the payment proof:
+
+```python
+# Update to 'pagado' state (manual or via custom action)
+rendicion.estado = 'pagado'
+rendicion.comprobante_traspaso = uploaded_file
+rendicion.save()
+
+# Update project's total_rendido
+proyecto.total_rendido = proyecto.rendicion_set.filter(
+    estado='pagado'
+).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+proyecto.save()
+```
+
+<Note>
+  The `comprobante_traspaso` field stores the bank transfer receipt or payment confirmation document.
+</Note>
+
+## Best Practices
+
+1. **Upload Documents First**: Use the "Upload First" pattern. Upload documents to `/api/documentos/`, then use the returned IDs in `documentos_ids`.
+
+2. **Clear Descriptions**: Provide detailed `descripcion` explaining the expense purpose and relation to the project.
+
+3. **Accurate Document Numbers**: Always include `numero_documento` (invoice/receipt number) for audit trails.
+
+4. **Timely Reviews**: CPAs should review pending renditions promptly to avoid blocking project execution.
+
+5. **Observation Follow-up**: When renditions are marked 'observado', address the `observacion` comments and resubmit quickly.
+
+6. **Payment Proof**: Always upload `comprobante_traspaso` when marking as 'pagado' for complete accountability.
+
+## Related Resources
+
+- [Project Management](/features/projects)
+- [Budget Periods](/features/budgets)
+- [Document Management](/features/documents)
+- [Dashboard Analytics](/features/dashboard)

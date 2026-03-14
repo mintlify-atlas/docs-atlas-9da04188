@@ -1,0 +1,417 @@
+---
+title: Document Management
+description: Upload, organize, and link documents to projects and renditions with type classification
+---
+
+## Overview
+
+The document management system provides centralized file storage with associations to projects and renditions. It implements an "Upload First" pattern where documents are uploaded independently, then linked to entities.
+
+## Documento Model
+
+Simple and flexible document structure:
+
+```python
+class Documento(models.Model):
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+    proyecto = models.ForeignKey('proyectos.Proyecto', on_delete=models.SET_NULL, 
+                                null=True, blank=True)
+    nombre = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=50)
+    archivo = models.FileField(upload_to='documentos/')
+    descripcion = models.TextField(blank=True)
+```
+
+### Field Details
+
+<CardGroup cols={2}>
+  <Card title="Metadata" icon="tags">
+    **nombre**: Display name for the document  
+    **tipo**: Document classification (e.g., "Acta", "Factura")  
+    **descripcion**: Optional details about the document  
+    **fecha_subida**: Automatic timestamp on upload
+  </Card>
+  
+  <Card title="Storage & Linking" icon="link">
+    **archivo**: File stored in `media/documentos/`  
+    **proyecto**: Optional link to a project (nullable)  
+    Can also link via ManyToMany in `Rendicion.documentos_adjuntos`
+  </Card>
+</CardGroup>
+
+## Upload First Pattern
+
+Documents are uploaded before entity creation, then linked by ID:
+
+<Steps>
+  <Step title="Upload Document">
+    Submit file with metadata to the documents endpoint.
+    
+    ```bash
+    POST /api/documentos/
+    Content-Type: multipart/form-data
+    
+    {
+      "nombre": "Acta Asamblea Marzo 2024",
+      "tipo": "Acta",
+      "descripcion": "Aprobación proyecto plaza",
+      "archivo": <file>
+    }
+    ```
+    
+    Response:
+    ```json
+    {
+      "id": 12,
+      "nombre": "Acta Asamblea Marzo 2024",
+      "tipo": "Acta",
+      "archivo": "/media/documentos/acta_marzo_2024.pdf",
+      "fecha_subida": "2024-03-15T10:30:00Z",
+      "proyecto": null
+    }
+    ```
+  </Step>
+  
+  <Step title="Create Entity with Document IDs">
+    Include the document IDs when creating projects or renditions.
+    
+    ```bash
+    POST /api/proyectos/proyectos/
+    {
+      "nombre": "Mejoramiento Plaza",
+      "documentos_ids": [12, 13, 14],
+      ...
+    }
+    ```
+  </Step>
+  
+  <Step title="Documents Get Linked">
+    The serializer links documents to the project.
+    
+    ```python
+    def create(self, validated_data):
+        documentos_ids = validated_data.pop('documentos_ids', [])
+        proyecto = Proyecto.objects.create(**validated_data)
+        
+        if documentos_ids:
+            docs = Documento.objects.filter(id__in=documentos_ids)
+            for doc in docs:
+                doc.proyecto = proyecto
+                doc.save()
+        
+        return proyecto
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  This pattern prevents orphaned documents and ensures files exist before entity creation fails validation.
+</Note>
+
+## Document Types
+
+Common `tipo` classifications used in Auditoriapp:
+
+<Tabs>
+  <Tab title="Project Documents">
+    - **Acta**: Assembly meeting minutes
+    - **Cotizaciones**: Price quotations from providers
+    - **Cotizacion Elegida**: Selected/winning quotation
+    - **Planos**: Technical drawings or blueprints
+    - **Permisos**: Government permits or authorizations
+  </Tab>
+  
+  <Tab title="Rendition Documents">
+    - **Factura**: Tax invoice
+    - **Boleta**: Receipt (non-taxed)
+    - **Evidencia**: Photos or proof of work/purchase
+    - **Contrato**: Service or purchase contract
+    - **Comprobante**: Payment proof (bank transfer)
+  </Tab>
+  
+  <Tab title="General">
+    - **Informe**: Report or analysis
+    - **Acuerdo**: Agreement or resolution
+    - **Otro**: Miscellaneous documents
+  </Tab>
+</Tabs>
+
+## API Endpoints
+
+### Document CRUD
+
+```bash
+# List all documents
+GET /api/documentos/
+
+# Get specific document
+GET /api/documentos/{id}/
+
+# Upload new document
+POST /api/documentos/
+Content-Type: multipart/form-data
+
+# Update document metadata (not file)
+PATCH /api/documentos/{id}/
+{
+  "nombre": "Updated Name",
+  "descripcion": "New description"
+}
+
+# Delete document
+DELETE /api/documentos/{id}/
+```
+
+### ViewSet Implementation
+
+```python
+class DocumentoViewSet(viewsets.ModelViewSet):
+    queryset = Documento.objects.all()
+    serializer_class = DocumentoSerializer
+```
+
+<Warning>
+  The current viewset has no permission_classes or queryset filtering. Consider adding:
+  ```python
+  permission_classes = [IsAuthenticated]
+  
+  def get_queryset(self):
+      user = self.request.user
+      if hasattr(user, 'comunidad') and user.comunidad:
+          return Documento.objects.filter(
+              Q(proyecto__comunidad=user.comunidad) |
+              Q(proyecto__isnull=True)
+          )
+      return Documento.objects.none()
+  ```
+</Warning>
+
+## File Types & Validation
+
+The `FileField` accepts any file type by default. Add validation in the serializer:
+
+```python
+class DocumentoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Documento
+        fields = '__all__'
+    
+    def validate_archivo(self, value):
+        # Validate file size (e.g., max 10MB)
+        if value.size > 10 * 1024 * 1024:
+            raise serializers.ValidationError("El archivo no puede exceder 10MB")
+        
+        # Validate file extension
+        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png', '.doc', '.docx', '.xls', '.xlsx']
+        ext = os.path.splitext(value.name)[1].lower()
+        if ext not in allowed_extensions:
+            raise serializers.ValidationError(f"Tipo de archivo no permitido: {ext}")
+        
+        return value
+```
+
+<CardGroup cols={2}>
+  <Card title="Recommended Formats" icon="file-check">
+    - **PDF**: For formal documents, invoices, contracts
+    - **JPEG/PNG**: For photos and visual evidence
+    - **Excel/Word**: For reports and spreadsheets
+  </Card>
+  
+  <Card title="Size Limits" icon="weight-hanging">
+    - **Documents**: Up to 10MB per file
+    - **Images**: Compress to under 5MB
+    - **Bulk uploads**: Consider zip archives for multiple files
+  </Card>
+</CardGroup>
+
+## Associations with Projects
+
+Projects access their documents via reverse ForeignKey:
+
+```python
+# Get all documents for a project
+documentos = proyecto.documento_set.all()
+
+# Get specific document types
+acta = proyecto.documento_set.filter(tipo='Acta').first()
+cotizaciones = proyecto.documento_set.filter(tipo='Cotizaciones')
+```
+
+Serializer methods provide convenient URL access:
+
+```python
+class ProyectoSerializer(serializers.ModelSerializer):
+    acta_url = serializers.SerializerMethodField()
+    cotizaciones_urls = serializers.SerializerMethodField()
+    elegido_url = serializers.SerializerMethodField()
+    
+    def get_acta_url(self, obj):
+        request = self.context.get('request')
+        doc = obj.documento_set.filter(tipo='Acta').last()
+        if doc and doc.archivo:
+            return request.build_absolute_uri(doc.archivo.url)
+        return None
+    
+    def get_cotizaciones_urls(self, obj):
+        request = self.context.get('request')
+        docs = obj.documento_set.filter(tipo='Cotizaciones')
+        return [request.build_absolute_uri(doc.archivo.url) 
+                for doc in docs if doc.archivo]
+```
+
+## Associations with Renditions
+
+Renditions use ManyToMany for multiple document attachments:
+
+```python
+class Rendicion(models.Model):
+    documentos_adjuntos = models.ManyToManyField(
+        'documentos.Documento', 
+        related_name='rendiciones_adjuntas'
+    )
+```
+
+Access renditions from a document:
+
+```python
+# Get all renditions using this document
+rendiciones = documento.rendiciones_adjuntas.all()
+```
+
+Serializer handles the relationship:
+
+```python
+class RendicionSerializer(serializers.ModelSerializer):
+    documentos_adjuntos = DocumentoSerializer(many=True, read_only=True)
+    
+    documentos_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        write_only=True,
+        queryset=Documento.objects.all(),
+        source='documentos_adjuntos'
+    )
+```
+
+## Frontend Integration
+
+### Upload Component Example
+
+```jsx
+import { apiFetch } from '../utils/api';
+
+async function uploadDocument(file, tipo, nombre, descripcion) {
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('tipo', tipo);
+  formData.append('nombre', nombre);
+  formData.append('descripcion', descripcion);
+  
+  const response = await apiFetch('/documentos/', {
+    method: 'POST',
+    body: formData,
+    // Don't set Content-Type - browser sets it with boundary
+  });
+  
+  if (response.ok) {
+    const documento = await response.json();
+    return documento.id; // Use this ID in documentos_ids
+  }
+  
+  throw new Error('Upload failed');
+}
+```
+
+### Display Documents
+
+```jsx
+function DocumentList({ documentos }) {
+  return (
+    <div className="space-y-2">
+      {documentos.map(doc => (
+        <a 
+          key={doc.id}
+          href={doc.archivo}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 p-2 hover:bg-base-200 rounded"
+        >
+          <FileIcon tipo={doc.tipo} />
+          <div>
+            <p className="font-medium">{doc.nombre}</p>
+            <p className="text-xs text-base-content/60">
+              {doc.tipo} • {formatDate(doc.fecha_subida)}
+            </p>
+          </div>
+        </a>
+      ))}
+    </div>
+  );
+}
+```
+
+## Storage Configuration
+
+Documents are stored using Django's `FileField`:
+
+```python
+# In settings.py
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+```
+
+Files are saved to `media/documentos/` by default:
+
+```python
+archivo = models.FileField(upload_to='documentos/')
+```
+
+<Note>
+  For production, configure cloud storage (S3, Google Cloud Storage) using `django-storages` to handle large file volumes and backups.
+</Note>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Descriptive Names" icon="pen-to-square">
+    Use clear, descriptive names like "Factura-Materiales-Marzo-2024.pdf" instead of generic "documento.pdf".
+  </Card>
+  
+  <Card title="Consistent Tipos" icon="layer-group">
+    Define a standard set of document types and use them consistently. Consider using choices in the model:
+    ```python
+    TIPO_CHOICES = [
+        ('Acta', 'Acta'),
+        ('Factura', 'Factura'),
+        ('Boleta', 'Boleta'),
+        ...
+    ]
+    tipo = models.CharField(max_length=50, choices=TIPO_CHOICES)
+    ```
+  </Card>
+  
+  <Card title="Pre-Upload Validation" icon="shield-check">
+    Validate file size and type on the frontend before uploading to provide better UX and reduce server load.
+  </Card>
+  
+  <Card title="Cleanup Orphans" icon="trash">
+    Periodically clean up documents with `proyecto=null` and no rendition associations that are older than a threshold (e.g., 30 days).
+  </Card>
+</CardGroup>
+
+## Security Considerations
+
+1. **File Type Validation**: Implement strict validation to prevent malicious file uploads.
+
+2. **Access Control**: Add permission checks to ensure users can only access documents from their community.
+
+3. **Virus Scanning**: Consider integrating antivirus scanning for uploaded files in production.
+
+4. **Secure URLs**: Use signed URLs or authentication-required endpoints for sensitive documents.
+
+5. **Audit Trail**: Log document access and modifications for compliance.
+
+## Related Resources
+
+- [Project Management](/features/projects)
+- [Expense Renditions](/features/renditions)
+- [Dashboard Analytics](/features/dashboard)

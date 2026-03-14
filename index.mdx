@@ -1,97 +1,67 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Welcome to Auditoriapp"
+description: "Transparent fund management and auditing platform for multiple beneficiary entities"
 ---
 
-## Setting up
+<div className="bg-gradient-to-r from-[#94cb04]/10 to-[#545454]/10 rounded-lg p-8 mb-8">
+  <h1 className="text-4xl font-bold text-[#1a1a1a] mb-4">Auditoriapp</h1>
+  <p className="text-lg text-[#545454] mb-6">
+    SaaS platform for auditing, traceability, and transparent management of project funds for multiple beneficiary entities.
+  </p>
+  <div className="flex gap-4">
+    <a href="/quickstart" className="inline-flex items-center px-6 py-3 bg-[#94cb04] text-white rounded-md font-semibold hover:opacity-90 transition-opacity">
+      Get Started
+    </a>
+    <a href="/api/overview" className="inline-flex items-center px-6 py-3 bg-transparent text-[#1a1a1a] border border-[#e0e0e0] rounded-md font-semibold hover:bg-[#e6e6e6] transition-colors">
+      View API
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Multi-Tenant Isolation" icon="building" href="/platform/multi-tenancy">
+    Complete data segregation by community with secure tenant isolation
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Role-Based Access" icon="shield" href="/platform/security">
+    Granular permissions for Community Admins, Auditors, and ITO/CPA roles
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Project Workflows" icon="diagram-project" href="/features/projects">
+    Full lifecycle management from creation through approval to execution
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Budget Tracking" icon="chart-line" href="/features/budgets">
+    Period-based budget allocation and real-time expense monitoring
   </Card>
-</Columns>
+  <Card title="Expense Accountability" icon="receipt" href="/features/renditions">
+    Complete rendition management with document evidence tracking
+  </Card>
+  <Card title="Real-Time Analytics" icon="chart-bar" href="/features/dashboard">
+    Interactive dashboards with KPIs and financial visualizations
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Navigation
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Set up Auditoriapp locally or in production
+  </Card>
+  <Card title="User Roles" icon="users" href="/roles/overview">
+    Understand platform roles and permissions
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/overview">
+    Complete REST API documentation
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Technology Stack
 
-## Need inspiration?
+Auditoriapp is built with modern, production-ready technologies:
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+- **Backend**: Django 5.0 + Django REST Framework
+- **Authentication**: JWT with refresh tokens (SimpleJWT)
+- **Database**: PostgreSQL/MySQL with Django ORM
+- **Frontend**: React 19 + Vite + TailwindCSS
+- **Visualizations**: Recharts for interactive dashboards
+- **Documentation**: OpenAPI/Swagger with drf-spectacular

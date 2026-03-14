@@ -1,0 +1,371 @@
+---
+title: Multi-Tenancy Implementation
+description: How Auditoriapp implements community-based data isolation and tenant separation
+---
+
+## Overview
+
+Auditoriapp implements **community-based multi-tenancy** where each community (`Comunidad`) operates as an independent tenant with complete data isolation. All resources (projects, users, documents, rendiciones) are scoped to a specific community.
+
+<Card title="Key Principle" icon="lightbulb">
+  Every user belongs to exactly one community, and can only access data from their assigned community.
+</Card>
+
+## Tenant Model
+
+### Comunidad (Community)
+
+The `Comunidad` model serves as the tenant identifier:
+
+```python
+# comunidades/models.py:20-27
+class Comunidad(models.Model):
+    nombre = models.CharField(max_length=255)
+    activa = models.BooleanField(default=True)
+    creada_en = models.DateTimeField(auto_now_add=True)
+    usuario = models.ForeignKey(
+        'usuarios.CustomUser', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True, 
+        related_name='comunidades'
+    )
+
+    def __str__(self):
+        return self.nombre
+```
+
+### User-Community Association
+
+Every user is assigned to a community through a foreign key:
+
+```python
+# usuarios/models.py:4-18
+class CustomUser(AbstractUser):
+    nombre = models.CharField(max_length=100, blank=True)
+    comunidad = models.ForeignKey(
+        'comunidades.Comunidad', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True
+    )
+    rol = models.CharField(max_length=20, choices=[
+        ('admin', 'Admin'),
+        ('auditor', 'Auditor'),
+        ('usuario', 'Usuario'),
+        ('directorio', 'Directorio Comunidad'),
+        ('presidente', 'Presidente Comunidad'),
+        ('ito', 'ITO / Responsable'),
+        ('cpa', 'CPA Revisor')
+    ], default='usuario')
+```
+
+<Info>
+  The `comunidad` foreign key is the foundation of data isolation in Auditoriapp.
+</Info>
+
+## Data Isolation
+
+### ORM-Level Filtering
+
+All domain models include a `comunidad` foreign key for automatic filtering:
+
+#### Projects
+
+```python
+# proyectos/models.py:13-15
+class Proyecto(models.Model):
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE)
+    periodo = models.ForeignKey('periodos.Periodo', on_delete=models.CASCADE)
+    nombre = models.CharField(max_length=255)
+    # ... additional fields
+```
+
+#### Financial Movements
+
+```python
+# finanzas/models.py:3-12
+class Movimiento(models.Model):
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE)
+    periodo = models.ForeignKey('periodos.Periodo', on_delete=models.CASCADE)
+    monto = models.DecimalField(max_digits=12, decimal_places=2)
+    tipo = models.CharField(max_length=50)
+    fecha = models.DateField()
+    descripcion = models.TextField()
+```
+
+#### Beneficiaries
+
+```python
+# beneficiarios/models.py:4-11
+class Beneficiario(models.Model):
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE)
+    nombre = models.CharField(max_length=255)
+    rut = models.CharField(max_length=12)
+    tipo = models.CharField(max_length=50, default='general')
+```
+
+#### Community Members (Socios)
+
+```python
+# comunidades/models.py:10-17
+class Socio(models.Model):
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE)
+    consejo = models.ForeignKey('comunidades.Consejo', on_delete=models.SET_NULL, null=True)
+    nombre = models.CharField(max_length=255)
+    rol = models.CharField(max_length=50)
+```
+
+## ViewSet Filtering
+
+### Automatic Queryset Filtering
+
+All ViewSets implement `get_queryset()` to automatically filter by the authenticated user's community:
+
+#### Project ViewSet
+
+```python
+# proyectos/views.py:14-22
+class ProyectoViewSet(viewsets.ModelViewSet):
+    serializer_class = ProyectoSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return Proyecto.objects.filter(comunidad=user.comunidad)
+        return Proyecto.objects.none()
+```
+
+<Warning>
+  If a user has no assigned community, they receive an **empty queryset** and cannot access any data.
+</Warning>
+
+#### Socio ViewSet
+
+```python
+# comunidades/views.py:13-21
+class SocioViewSet(viewsets.ModelViewSet):
+    serializer_class = SocioSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return Socio.objects.filter(comunidad=user.comunidad)
+        return Socio.objects.none()
+```
+
+#### Report Progress ViewSet
+
+```python
+# proyectos/views.py:91-100
+class ReporteAvanceViewSet(viewsets.ModelViewSet):
+    serializer_class = ReporteAvanceSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return ReporteAvance.objects.filter(
+                proyecto__comunidad=user.comunidad
+            ).order_by('-fecha_reporte')
+        return ReporteAvance.objects.none()
+```
+
+### Dashboard KPIs
+
+The dashboard endpoint demonstrates comprehensive community-based filtering:
+
+```python
+# dashboard/views.py:10-42
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_kpis(request):
+    user = request.user
+    if not hasattr(user, 'comunidad') or not user.comunidad:
+        return Response({"error": "Usuario sin comunidad asignada"}, status=400)
+
+    comunidad = user.comunidad
+    
+    # Filter all queries by community
+    proyectos_qs = Proyecto.objects.filter(comunidad=comunidad)
+    
+    total_proyectos = proyectos_qs.count()
+    activas = proyectos_qs.filter(estado='ejecucion').count()
+    
+    presupuesto_total = proyectos_qs.aggregate(
+        Sum('presupuesto_total')
+    )['presupuesto_total__sum'] or 0
+    
+    # Rendiciones filtered by community via project relationship
+    total_pagado = Rendicion.objects.filter(
+        proyecto__comunidad=comunidad, 
+        estado='pagado'
+    ).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+    
+    rendiciones_qs = Rendicion.objects.filter(proyecto__comunidad=comunidad)
+    # ...
+```
+
+<Info>
+  Notice how rendiciones are filtered through the **proyecto__comunidad** relationship lookup.
+</Info>
+
+## JWT Token Community Context
+
+### Token Payload
+
+JWT tokens include the user's community information for immediate context:
+
+```python
+# usuarios/serializers.py:6-22
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        
+        data['user'] = {
+            'id': str(self.user.id),
+            'username': self.user.username,
+            'nombre': self.user.nombre,
+            'email': self.user.email,
+            'rol': self.user.rol,
+            'comunidad': {
+                'id': str(self.user.comunidad.id) if self.user.comunidad else None,
+                'nombre': self.user.comunidad.nombre if self.user.comunidad else None
+            } if self.user.comunidad else None
+        }
+        
+        return data
+```
+
+### Login Response
+
+```python
+# usuarios/views.py:29-61
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_view(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    user = authenticate(username=username, password=password)
+    if user:
+        serializer = CustomTokenObtainPairSerializer()
+        tokens = serializer.get_token(user)
+        
+        return Response({
+            'access': str(tokens.access_token),
+            'refresh': str(tokens),
+            'user': {
+                'id': str(user.id),
+                'username': user.username,
+                'nombre': user.nombre,
+                'email': user.email,
+                'rol': user.rol,
+                'comunidad': {
+                    'id': str(user.comunidad.id) if user.comunidad else None,
+                    'nombre': user.comunidad.nombre if user.comunidad else None
+                } if user.comunidad else None
+            }
+        })
+```
+
+## Creating Multi-Tenant Data
+
+### Automatic Community Assignment
+
+When creating new projects, the community is automatically assigned from the authenticated user:
+
+```python
+# proyectos/views.py:24-28
+def perform_create(self, serializer):
+    if self.request.user.rol == 'Admin Comunidad':
+        serializer.save(comunidad=self.request.user.comunidad)
+    else:
+        serializer.save()
+```
+
+### Period Management
+
+Periods use a custom manager to retrieve the current active period for a community:
+
+```python
+# periodos/models.py:8-11
+class PeriodoManager(models.Manager):
+    def periodo_actual(self, comunidad):
+        hoy = timezone.now().date()
+        return self.filter(
+            comunidad=comunidad, 
+            activo=True, 
+            fecha_inicio__lte=hoy, 
+            fecha_fin__gte=hoy
+        ).order_by('-fecha_inicio').first()
+```
+
+## Query Examples
+
+### Single Community Filter
+
+```python
+# Get all projects for the authenticated user's community
+Proyecto.objects.filter(comunidad=request.user.comunidad)
+```
+
+### Relationship Traversal
+
+```python
+# Get all rendiciones for a community (through proyecto relationship)
+Rendicion.objects.filter(proyecto__comunidad=request.user.comunidad)
+```
+
+### Aggregation with Tenant Filter
+
+```python
+# Sum all budgets for community projects
+total_budget = Proyecto.objects.filter(
+    comunidad=request.user.comunidad
+).aggregate(Sum('presupuesto_total'))['presupuesto_total__sum']
+```
+
+### Manager with Community Context
+
+```python
+# Get current period for user's community
+periodo = Periodo.objects.periodo_actual(request.user.comunidad)
+```
+
+## Security Considerations
+
+<CardGroup cols={2}>
+  <Card title="No Cross-Tenant Access" icon="shield-check">
+    Users can never access data from other communities through the API
+  </Card>
+  <Card title="Empty Queryset Fallback" icon="ban">
+    Users without a community assignment receive empty querysets
+  </Card>
+  <Card title="Automatic Filtering" icon="filter">
+    All ViewSets implement get_queryset() with community filtering
+  </Card>
+  <Card title="Community in Token" icon="key">
+    JWT tokens include community context for immediate validation
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+1. **Always filter by community** in custom queries and views
+2. **Validate community assignment** before allowing data creation
+3. **Use relationship lookups** (e.g., `proyecto__comunidad`) for related models
+4. **Return empty querysets** for users without communities
+5. **Include community in serializers** when needed for context
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/platform/architecture">
+    Understand the overall system design
+  </Card>
+  <Card title="Security" icon="lock" href="/platform/security">
+    Learn about role-based access control
+  </Card>
+</CardGroup>

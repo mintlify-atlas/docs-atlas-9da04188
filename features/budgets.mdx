@@ -1,0 +1,350 @@
+---
+title: Budget Period Management
+description: Manage budget periods with automatic rollover and saldo tracking per community
+---
+
+## Overview
+
+Budget periods (`Periodo`) represent fiscal timeframes for community fund management. Each period tracks allocated budgets, previous balances, and automatically transfers remaining funds to the next period upon closure.
+
+## Periodo Model
+
+The budget period structure includes both new allocations and carried-over balances:
+
+```python
+class Periodo(models.Model):
+    comunidad = models.ForeignKey(Comunidad, on_delete=models.CASCADE, 
+                                 related_name='periodos')
+    nombre = models.CharField(max_length=255)
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+    monto_asignado = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    monto_anterior = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    activo = models.BooleanField(default=True)
+    
+    objects = PeriodoManager()
+```
+
+### Field Descriptions
+
+<CardGroup cols={2}>
+  <Card title="Identification" icon="tag">
+    **nombre**: Period identifier (e.g., "Periodo 2024")  
+    **comunidad**: Associated community (ForeignKey)  
+    **activo**: Whether this period is currently active
+  </Card>
+  
+  <Card title="Dates & Budget" icon="calendar-dollar">
+    **fecha_inicio**: Period start date  
+    **fecha_fin**: Period end date  
+    **monto_asignado**: New budget allocated for this period  
+    **monto_anterior**: Balance carried over from previous period
+  </Card>
+</CardGroup>
+
+## Budget Calculation
+
+Total available budget for a period combines new allocation and previous balance:
+
+```python
+# Total resources available
+total_recursos = periodo.monto_asignado + periodo.monto_anterior
+
+# Calculate spent amount (from paid renditions)
+from rendiciones.models import Rendicion
+from django.db.models import Sum
+
+gastos_pagados = Rendicion.objects.filter(
+    proyecto__periodo=periodo,
+    estado='pagado'
+).aggregate(total=Sum('monto_rendido'))['total'] or 0
+
+# Calculate remaining balance
+saldo_final = total_recursos - gastos_pagados
+```
+
+<Note>
+  **Saldo Calculation**: Only renditions with `estado='pagado'` are counted as actual expenditures. Pending or approved renditions don't affect the balance until payment is confirmed.
+</Note>
+
+## Period Manager
+
+Custom manager provides helper methods for period queries:
+
+```python
+class PeriodoManager(models.Manager):
+    def periodo_actual(self, comunidad):
+        """Get the active period for a community based on current date"""
+        hoy = timezone.now().date()
+        return self.filter(
+            comunidad=comunidad, 
+            activo=True, 
+            fecha_inicio__lte=hoy, 
+            fecha_fin__gte=hoy
+        ).order_by('-fecha_inicio').first()
+```
+
+Usage example:
+
+```python
+# Get current active period
+periodo_actual = Periodo.objects.periodo_actual(user.comunidad)
+```
+
+## Period Closure Workflow
+
+Closing a period automatically calculates balances and creates the next period:
+
+<Steps>
+  <Step title="Validate Closure">
+    Ensure the period is currently active. Closed periods cannot be re-closed.
+    
+    ```python
+    if not periodo.activo:
+        return Response({'error': 'El periodo ya está cerrado.'}, status=400)
+    ```
+  </Step>
+  
+  <Step title="Calculate Final Balance">
+    Sum all paid renditions and subtract from total resources.
+    
+    ```python
+    gastos_pagados = Rendicion.objects.filter(
+        proyecto__periodo=periodo,
+        estado='pagado'
+    ).aggregate(total=Sum('monto_rendido'))['total'] or 0
+    
+    total_recursos = periodo.monto_asignado + periodo.monto_anterior
+    saldo_final = total_recursos - gastos_pagados
+    ```
+  </Step>
+  
+  <Step title="Close Current Period">
+    Mark the period as inactive.
+    
+    ```python
+    periodo.activo = False
+    periodo.save()
+    ```
+  </Step>
+  
+  <Step title="Create Next Period">
+    Automatically generate the next period with carried-over balance.
+    
+    ```python
+    dia_siguiente = periodo.fecha_fin + datetime.timedelta(days=1)
+    fin_siguiente = dia_siguiente.replace(year=dia_siguiente.year + 1) - datetime.timedelta(days=1)
+    
+    siguiente = Periodo.objects.create(
+        comunidad=periodo.comunidad,
+        nombre=f"Periodo {dia_siguiente.year}",
+        fecha_inicio=dia_siguiente,
+        fecha_fin=fin_siguiente,
+        monto_asignado=0,  # To be set by treasurer
+        monto_anterior=saldo_final,  # Carry over balance
+        activo=True
+    )
+    ```
+  </Step>
+</Steps>
+
+## API Endpoints
+
+### List & Create Periods
+
+```bash
+# Get all periods for user's community
+GET /api/periodos/
+
+Response:
+[
+  {
+    "id": 1,
+    "nombre": "Periodo 2024",
+    "comunidad": 5,
+    "fecha_inicio": "2024-01-01",
+    "fecha_fin": "2024-12-31",
+    "monto_asignado": "50000000",
+    "monto_anterior": "5000000",
+    "activo": true
+  }
+]
+```
+
+```bash
+# Create new period
+POST /api/periodos/
+{
+  "nombre": "Periodo 2025",
+  "fecha_inicio": "2025-01-01",
+  "fecha_fin": "2025-12-31",
+  "monto_asignado": "60000000",
+  "monto_anterior": "0"
+}
+```
+
+### Close Period
+
+```bash
+# Close a period and generate next one
+POST /api/periodos/{id}/cerrar/
+
+Response:
+{
+  "message": "Periodo cerrado exitosamente.",
+  "resumen": {
+    "total_recursos": "55000000",
+    "gastos_pagados": "48000000",
+    "saldo_remanente": "7000000"
+  },
+  "siguiente_periodo": {
+    "id": 2,
+    "nombre": "Periodo 2025",
+    "fecha_inicio": "2025-01-01",
+    "fecha_fin": "2025-12-31",
+    "monto_asignado": "0",
+    "monto_anterior": "7000000",
+    "activo": true
+  }
+}
+```
+
+## Permissions & Security
+
+Period operations are scoped to the user's community:
+
+```python
+class PeriodoViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return Periodo.objects.filter(comunidad=user.comunidad)
+        return Periodo.objects.none()
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            serializer.save(comunidad=user.comunidad)
+```
+
+<Warning>
+  Users can only view and manage periods belonging to their assigned community. Cross-community access is blocked at the queryset level.
+</Warning>
+
+## Dashboard Integration
+
+The current period is displayed prominently on the dashboard:
+
+```jsx
+// Frontend: Dashboard.jsx
+const { periodo } = data; // from /api/dashboard/kpis/
+
+{periodo ? (
+  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 rounded-box bg-base-200 shadow-sm border-l-4 border-primary">
+    <div className="stat text-center md:text-left p-0">
+      <div className="stat-title text-lg font-bold">
+        {periodo.nombre} (Actual)
+      </div>
+    </div>
+    <div className="stat text-center md:text-right p-0">
+      <div className="stat-value text-primary text-3xl">
+        {formatMonto(periodo.monto_asignado)}
+      </div>
+      <div className="stat-desc text-sm">
+        Del {formatFechaCL(periodo.fecha_inicio)} al {formatFechaCL(periodo.fecha_fin)}
+      </div>
+    </div>
+  </div>
+) : (
+  <div className="alert alert-warning">No hay un periodo activo configurado.</div>
+)}
+```
+
+## Period vs Project Relationship
+
+Each project belongs to exactly one period:
+
+```python
+# In Proyecto model
+periodo = models.ForeignKey('periodos.Periodo', on_delete=models.CASCADE)
+```
+
+<Tabs>
+  <Tab title="Budget Allocation">
+    Projects draw from the period's total resources. The sum of all project budgets should not exceed the period's `total_recursos`.
+    
+    ```python
+    # Validate total allocation
+    proyectos_total = Proyecto.objects.filter(
+        periodo=periodo
+    ).aggregate(Sum('presupuesto_total'))['presupuesto_total__sum'] or 0
+    
+    if proyectos_total > total_recursos:
+        raise ValidationError("Presupuesto excede recursos disponibles")
+    ```
+  </Tab>
+  
+  <Tab title="Multi-Year Projects">
+    If a project spans multiple calendar years but belongs to one period, its budget is fully allocated from that period. Consider creating separate projects per period for better tracking.
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="One Active Period" icon="calendar-check">
+    Maintain only one active period per community at a time. Close the current period before the next one's `fecha_inicio`.
+  </Card>
+  
+  <Card title="Balance Reconciliation" icon="balance-scale">
+    Before closing, verify that all renditions are reviewed and payment status is accurate. Unpaid renditions don't affect the carried balance.
+  </Card>
+  
+  <Card title="Date Continuity" icon="arrows-rotate">
+    When auto-creating the next period, ensure dates are continuous with no gaps. The system sets `fecha_inicio` to the day after the previous `fecha_fin`.
+  </Card>
+  
+  <Card title="Budget Planning" icon="chart-line">
+    Set `monto_asignado` for the new period after creation. The closure endpoint initializes it to 0 for treasurer input.
+  </Card>
+</CardGroup>
+
+## Common Operations
+
+### Check Available Budget
+
+```python
+periodo = Periodo.objects.periodo_actual(comunidad)
+total_recursos = periodo.monto_asignado + periodo.monto_anterior
+
+# Subtract committed budgets
+proyectos_total = Proyecto.objects.filter(
+    periodo=periodo
+).aggregate(Sum('presupuesto_total'))['presupuesto_total__sum'] or 0
+
+budget_disponible = total_recursos - proyectos_total
+```
+
+### Extend Period
+
+```python
+# Extend end date (before closure)
+periodo.fecha_fin = new_end_date
+periodo.save()
+```
+
+### Manual Balance Adjustment
+
+```python
+# Correct monto_anterior if needed
+periodo.monto_anterior = corrected_amount
+periodo.save()
+```
+
+## Related Resources
+
+- [Project Management](/features/projects)
+- [Expense Renditions](/features/renditions)
+- [Dashboard KPIs](/features/dashboard)

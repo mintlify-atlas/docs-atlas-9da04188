@@ -1,0 +1,191 @@
+---
+title: "API Overview"
+description: "Introduction to the Auditoriapp REST API"
+---
+
+## Introduction
+
+The Auditoriapp API is a RESTful API built with Django REST Framework that provides programmatic access to all platform features. The API follows REST conventions and returns JSON responses.
+
+## Base URL
+
+All API endpoints are prefixed with `/api/`:
+
+```
+https://your-domain.com/api/
+```
+
+For local development:
+
+```
+http://127.0.0.1:8000/api/
+```
+
+## Available Endpoints
+
+The API is organized into the following modules:
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    JWT token-based authentication
+  </Card>
+  <Card title="Communities" icon="building" href="/api/communities">
+    Community and member management
+  </Card>
+  <Card title="Periods" icon="calendar" href="/api/periods">
+    Budget period allocation
+  </Card>
+  <Card title="Projects" icon="diagram-project" href="/api/projects">
+    Project lifecycle management
+  </Card>
+  <Card title="Renditions" icon="receipt" href="/api/renditions">
+    Expense accountability
+  </Card>
+  <Card title="Documents" icon="file" href="/api/documents">
+    Document upload and management
+  </Card>
+  <Card title="Dashboard" icon="chart-bar" href="/api/dashboard">
+    KPIs and analytics
+  </Card>
+</CardGroup>
+
+## API Routes
+
+Here are the main API route patterns from the URL configuration:
+
+```python backend/auditoriapp/urls.py
+urlpatterns = [
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
+    path('api/redoc/', SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    path('api/auth/', include('usuarios.urls')),
+    path('api/comunidades/', include('comunidades.urls')),
+    path('api/periodos/', include('periodos.urls')),
+    path('api/proyectos/', include('proyectos.urls')),
+    path('api/rendiciones/', include('rendiciones.urls')),
+    path('api/documentos/', include('documentos.urls')),
+    path('api/dashboard/', include('dashboard.urls')),
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+]
+```
+
+## Response Format
+
+All API responses are returned in JSON format with the following structure:
+
+### Success Response
+
+```json
+{
+  "id": 1,
+  "nombre": "Project Name",
+  "descripcion": "Project description",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+### List Response
+
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Item 1"
+  },
+  {
+    "id": 2,
+    "nombre": "Item 2"
+  }
+]
+```
+
+### Error Response
+
+```json
+{
+  "error": "Error message description",
+  "detail": "Detailed error information"
+}
+```
+
+## HTTP Status Codes
+
+The API uses standard HTTP status codes:
+
+| Code | Description |
+|------|-------------|
+| `200` | Success - Request completed successfully |
+| `201` | Created - Resource created successfully |
+| `400` | Bad Request - Invalid request parameters |
+| `401` | Unauthorized - Authentication required or failed |
+| `403` | Forbidden - Insufficient permissions |
+| `404` | Not Found - Resource doesn't exist |
+| `500` | Server Error - Internal server error |
+
+## Authentication
+
+All API endpoints (except `/api/token/` and `/api/token/refresh/`) require JWT authentication. Include the access token in the Authorization header:
+
+```bash
+curl -H "Authorization: Bearer <access_token>" \
+  https://your-domain.com/api/proyectos/
+```
+
+Learn more in the [Authentication](/api/authentication) guide.
+
+## Multi-Tenancy
+
+The API implements multi-tenant data isolation. Each request is automatically filtered to only return data for the authenticated user's community (except for auditor roles which have cross-community access).
+
+<Note>
+Community admins can only access their own community's data. Auditors have read access across all communities.
+</Note>
+
+## OpenAPI Documentation
+
+Interactive API documentation is available at:
+
+- **Swagger UI**: `/api/docs/`
+- **ReDoc**: `/api/redoc/`
+- **OpenAPI Schema**: `/api/schema/`
+
+These interfaces allow you to explore and test API endpoints directly in your browser.
+
+<Note>
+Access the Swagger UI at `http://127.0.0.1:8000/api/docs/` when running the backend server locally.
+</Note>
+
+## Rate Limiting
+
+<Info>
+Currently, rate limiting is not enforced on the API. This may change in production deployments.
+</Info>
+
+## Pagination
+
+<Info>
+Most list endpoints return all results without pagination. For large datasets, consider implementing pagination using Django REST Framework's pagination classes.
+</Info>
+
+## CORS Configuration
+
+CORS is configured to allow requests from the frontend application. In development mode, all origins are allowed:
+
+```python backend/auditoriapp/settings.py
+CORS_ALLOW_ALL_ORIGINS = True  # Development only
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",  # Vite dev server
+]
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    Learn how to authenticate with JWT tokens
+  </Card>
+  <Card title="Projects API" icon="diagram-project" href="/api/projects">
+    Start managing projects via API
+  </Card>
+</CardGroup>

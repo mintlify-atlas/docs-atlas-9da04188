@@ -1,80 +1,426 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start Guide
+description: Get Auditoriapp up and running in under 10 minutes
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
+This guide will help you quickly set up Auditoriapp locally, create a test user, and explore the main features of the platform.
 
-### Step 1: Set up your local environment
+<Note>
+  This quick start uses SQLite for simplicity. For production deployments, see the [Installation Guide](/installation) for PostgreSQL/MySQL configuration.
+</Note>
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Python 3.11+** installed
+- **Node.js 18+** and npm
+- **Git** for cloning the repository
+- A code editor (VS Code, PyCharm, etc.)
+
+## Setup Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Auditoriapp repository to your local machine:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    git clone https://github.com/yourusername/auditoriapp.git
+    cd auditoriapp
+    ```
+  </Step>
+  
+  <Step title="Backend Setup">
+    Set up the Django backend with a virtual environment:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    cd backend
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    pip install -r requirements.txt
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    The requirements include:
+    - Django 5.0.7
+    - Django REST Framework 3.15.2
+    - djangorestframework-simplejwt 5.3.0 (JWT authentication)
+    - django-cors-headers 4.3.1
+    - drf-spectacular 0.27.2 (API documentation)
+  </Step>
+  
+  <Step title="Database Migration">
+    Initialize the database and create tables:
+    
+    ```bash
+    python manage.py migrate
+    ```
+    
+    This creates the SQLite database with all necessary tables:
+    - `usuarios_customuser` - User accounts and roles
+    - `comunidades_comunidad` - Community organizations
+    - `periodos_periodo` - Budget periods
+    - `proyectos_proyecto` - Projects and budgets
+    - `rendiciones_rendicion` - Financial renditions
+    - And more...
+  </Step>
+  
+  <Step title="Create Superuser">
+    Create an admin account to access the system:
+    
+    ```bash
+    python manage.py createsuperuser
+    ```
+    
+    Enter username, email (optional), and password when prompted.
+  </Step>
+  
+  <Step title="Start Backend Server">
+    Run the Django development server:
+    
+    ```bash
+    python manage.py runserver
+    ```
+    
+    The API will be available at `http://localhost:8000`
+    
+    <Note>
+      The backend serves the REST API. Keep this terminal window open.
+    </Note>
+  </Step>
+  
+  <Step title="Frontend Setup">
+    In a **new terminal window**, set up the React frontend:
+    
+    ```bash
+    cd frontend
+    npm install
+    ```
+    
+    This installs all dependencies:
+    - React 19.1.1
+    - Vite 7.1.7 (build tool)
+    - TailwindCSS 4.1.17 + DaisyUI 5.5.4
+    - Recharts 3.5.1 (charts)
+    - React Router DOM 7.9.4
+  </Step>
+  
+  <Step title="Start Frontend Server">
+    Launch the Vite development server:
+    
+    ```bash
+    npm run dev
+    ```
+    
+    The application will open at `http://localhost:5173`
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## First Login
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+Now that both servers are running, let's log in and explore the platform.
 
-### Step 3: Go live
+<Steps>
+  <Step title="Access Login Page">
+    Navigate to `http://localhost:5173` in your browser. You'll see the Auditoriapp login screen:
+    
+    ```jsx title="frontend/src/pages/Login.jsx" {16}
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      setError("");
+      try {
+        const res = await fetch("http://localhost:8000/api/auth/login/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (res.ok && data.access) {
+          localStorage.setItem("access", data.access);
+          localStorage.setItem("refresh", data.refresh);
+          localStorage.setItem("user", JSON.stringify(data.user || {}));
+          // ...
+        }
+      }
+    }
+    ```
+    
+    Enter the superuser credentials you created earlier.
+  </Step>
+  
+  <Step title="Create a Community">
+    After logging in, you'll need to create a community organization. Use the Django admin panel:
+    
+    1. Go to `http://localhost:8000/admin`
+    2. Navigate to **Comunidades > Comunidades**
+    3. Click **Add Comunidad**
+    4. Fill in:
+       - **Nombre**: "Test Community"
+       - **Activa**: ✓ (checked)
+       - **Usuario**: Select your superuser
+    5. Click **Save**
+  </Step>
+  
+  <Step title="Update User Role">
+    Assign your user to the community with appropriate role:
+    
+    1. In Django admin, go to **Usuarios > Custom users**
+    2. Click on your username
+    3. Set:
+       - **Comunidad**: "Test Community"
+       - **Rol**: "admin" (Admin Comunidad)
+    4. Click **Save**
+  </Step>
+  
+  <Step title="Create a Budget Period">
+    Budget periods define the fiscal timeframe for projects:
+    
+    1. Go to **Periodos > Periodos** in Django admin
+    2. Click **Add Periodo**
+    3. Fill in:
+       - **Comunidad**: "Test Community"
+       - **Nombre**: "Q1 2026"
+       - **Fecha inicio**: 2026-01-01
+       - **Fecha fin**: 2026-03-31
+       - **Monto asignado**: 50000000 (50M in local currency)
+       - **Activo**: ✓ (checked)
+    4. Click **Save**
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Explore the Dashboard
 
-## Next steps
+Log out and log back in through the frontend (`http://localhost:5173`). You should now see the dashboard.
 
-Now that you have your docs running, explore these key features:
+### Dashboard Features
+
+The dashboard provides real-time insights into your community's financial status:
+
+```jsx title="frontend/src/pages/Dashboard.jsx" {17-19}
+useEffect(() => {
+  async function fetchDashboard() {
+    try {
+      const res = await apiFetch('/dashboard/kpis/');
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (e) {
+      console.error("Error fetching dashboard", e);
+    } finally {
+      setLoading(false);
+    }
+  }
+  fetchDashboard();
+}, []);
+
+const { kpis, alertas, charts, periodo } = data;
+```
 
 <CardGroup cols={2}>
+  <Card title="KPI Cards" icon="chart-simple">
+    - Total projects count
+    - Total budget allocated
+    - Amounts paid
+    - Approved renditions
+  </Card>
+  
+  <Card title="Visual Charts" icon="chart-pie">
+    - Pie chart: Rendition status breakdown
+    - Interactive tooltips with Recharts
+    - Color-coded states
+  </Card>
+  
+  <Card title="Current Period" icon="calendar">
+    - Active budget period name
+    - Assigned amount
+    - Start and end dates
+  </Card>
+  
+  <Card title="Alerts Panel" icon="bell">
+    - Renditions with observations
+    - Pending CPA reviews
+    - Overdue projects
+  </Card>
+</CardGroup>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+## Create Your First Project
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+<Steps>
+  <Step title="Navigate to Projects">
+    Click on **Proyectos** in the sidebar navigation.
+  </Step>
+  
+  <Step title="Add New Project">
+    Click the **Nuevo Proyecto** button. Fill in the project details:
+    
+    - **Nombre**: "Community Garden Renovation"
+    - **Descripción**: "Upgrade irrigation system and add solar lighting"
+    - **Periodo**: Select "Q1 2026"
+    - **Fecha inicio**: 2026-01-15
+    - **Fecha fin**: 2026-02-28
+    - **Presupuesto total**: 5000000
+    - **Estado**: "borrador" (draft)
+  </Step>
+  
+  <Step title="Add Project Details">
+    Complete the project formulation:
+    
+    ```python title="backend/proyectos/models.py" {28-30}
+    class Proyecto(models.Model):
+        # ... basic fields ...
+        
+        # Project Formulation
+        objetivos = models.TextField(help_text="Main project objectives")
+        justificacion = models.TextField(help_text="Why this project is needed")
+        beneficiarios_estimados = models.PositiveIntegerField(
+            help_text="Number of people benefited"
+        )
+        
+        # Governance (Assembly Validation)
+        quorum_asamblea = models.PositiveIntegerField(
+            help_text="Number of attendees in minutes"
+        )
+        
+        # President Signature
+        firma_presidente = models.BooleanField(default=False)
+        fecha_firma_presidente = models.DateTimeField(null=True, blank=True)
+    ```
+    
+    Enter:
+    - **Objetivos**: "Improve water efficiency and night security"
+    - **Justificación**: "Current system wastes water; poor lighting causes safety concerns"
+    - **Beneficiarios estimados**: 150
+    - **Quorum asamblea**: 45
+  </Step>
+  
+  <Step title="Upload Documentation">
+    Attach required documents:
+    
+    - Assembly meeting minutes (acta de asamblea)
+    - Vendor quotations (cotizaciones)
+    - Selected vendor proposal
+    
+    Documents are managed through the `documentos` app with many-to-many relationships to projects.
+  </Step>
+  
+  <Step title="Submit for Review">
+    Change the project state from **borrador** to **revision_interna** to start the approval workflow.
+  </Step>
+</Steps>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+## Add a Financial Rendition
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+Once your project is approved and in execution, you can record expenses:
 
+<Steps>
+  <Step title="Go to Rendiciones">
+    Navigate to **Rendiciones** in the sidebar.
+  </Step>
+  
+  <Step title="Create Rendition">
+    Click **Nueva Rendición** and fill in:
+    
+    ```python title="backend/rendiciones/models.py" {4-10}
+    class Rendicion(models.Model):
+        ESTADO_RENDICION = [
+            ('pendiente', 'Pendiente'),
+            ('aprobado', 'Aprobado'),
+            ('observado', 'Con Observaciones'),
+            ('rechazado', 'Rechazado'),
+            ('pagado', 'Pagado'),
+        ]
+        
+        proyecto = models.ForeignKey('proyectos.Proyecto', on_delete=models.CASCADE)
+        descripcion = models.TextField()
+        monto_rendido = models.DecimalField(max_digits=12, decimal_places=2)
+        numero_documento = models.CharField(max_length=50)  # Invoice number
+        fecha_rendicion = models.DateField()
+    ```
+    
+    - **Proyecto**: "Community Garden Renovation"
+    - **Descripción**: "Purchase of irrigation pipes and fittings"
+    - **Monto rendido**: 1250000
+    - **Número documento**: "FAC-2026-0042"
+    - **Fecha rendición**: 2026-01-20
+  </Step>
+  
+  <Step title="Attach Invoice">
+    Upload the invoice PDF or image as supporting evidence.
+  </Step>
+  
+  <Step title="Submit for Review">
+    The rendition starts in **pendiente** state, waiting for CPA review.
+  </Step>
+</Steps>
+
+## View Real-time Dashboard Updates
+
+Return to the dashboard to see your changes reflected:
+
+- **Total Proyectos** counter incremented
+- **Presupuesto Total** updated with your project budget
+- **Rendition chart** shows 1 pending rendition
+- **Alerts panel** shows "1 rendición esperando revisión del CPA"
+
+## API Documentation
+
+Auditoriapp includes auto-generated API documentation powered by drf-spectacular:
+
+```python title="backend/auditoriapp/settings.py" {156-161}
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Auditoriapp API',
+    'DESCRIPTION': 'API documentation for the community management and auditing SaaS system.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+```
+
+Access the interactive API docs at:
+
+- **Swagger UI**: `http://localhost:8000/api/schema/swagger-ui/`
+- **ReDoc**: `http://localhost:8000/api/schema/redoc/`
+
+## Authentication Flow
+
+The platform uses JWT tokens for authentication:
+
+```python title="backend/auditoriapp/settings.py" {163-170}
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256', 
+    'SIGNING_KEY': SECRET_KEY,
+}
+```
+
+- **Access tokens** expire after 60 minutes
+- **Refresh tokens** last 7 days
+- Tokens are automatically rotated on refresh
+- Old tokens are blacklisted after rotation
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Installation Guide" icon="server" href="/installation">
+    Production setup with PostgreSQL, environment variables, and deployment
+  </Card>
+  
+  <Card title="User Roles" icon="users-gear" href="/roles/overview">
+    Understanding roles, permissions, and multi-tenant access control
+  </Card>
+  
+  <Card title="Project Workflow" icon="diagram-project" href="/features/projects">
+    Deep dive into project states, approvals, and governance
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Congratulations!** You've successfully set up Auditoriapp and created your first project and rendition. Explore the platform to discover more features like document management, reporting, and audit trails.
 </Note>

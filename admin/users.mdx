@@ -1,0 +1,348 @@
+---
+title: 'User Management'
+description: 'Create and manage users, assign roles, and configure permissions'
+icon: 'users'
+---
+
+## Overview
+
+Auditoriapp uses a custom user model (`CustomUser`) that extends Django's `AbstractUser` to provide role-based access control and community-specific user management.
+
+## User Roles
+
+The system supports seven different user roles, each with specific permissions:
+
+<CardGroup cols={2}>
+  <Card title="Admin" icon="shield-halved">
+    Community administrator with full access to their community's data
+  </Card>
+  <Card title="Auditor" icon="clipboard-check">
+    External auditor who can review and validate community operations
+  </Card>
+  <Card title="Usuario" icon="user">
+    Standard user with basic access permissions
+  </Card>
+  <Card title="Directorio" icon="users-gear">
+    Community board member with elevated permissions
+  </Card>
+  <Card title="Presidente" icon="crown">
+    Community president with leadership access
+  </Card>
+  <Card title="ITO" icon="user-tie">
+    ITO/Responsable (Technical Inspection Officer)
+  </Card>
+  <Card title="CPA" icon="file-signature">
+    CPA Revisor (Certified Public Accountant)
+  </Card>
+</CardGroup>
+
+## User Model
+
+The `CustomUser` model includes the following fields:
+
+```python
+# usuarios/models.py:4
+class CustomUser(AbstractUser):
+    nombre = models.CharField(max_length=100, blank=True)
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE, null=True, blank=True)
+    rol = models.CharField(max_length=20, choices=[...])
+    telefono = models.CharField(max_length=20, blank=True)
+    es_auditor = models.BooleanField(default=False)
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `username` | CharField | Unique username for login |
+| `email` | EmailField | User's email address |
+| `nombre` | CharField | Full name (max 100 characters) |
+| `comunidad` | ForeignKey | Associated community (can be null) |
+| `rol` | CharField | User role (see roles above) |
+| `telefono` | CharField | Phone number (max 20 characters) |
+| `es_auditor` | BooleanField | Flag indicating if user is an auditor |
+
+## Creating Users
+
+### Using Django Admin
+
+<Steps>
+  <Step title="Access Django Admin">
+    Navigate to `/admin` and login with superuser credentials.
+  </Step>
+  
+  <Step title="Navigate to Users">
+    Click on "Custom users" under the "USUARIOS" section.
+  </Step>
+  
+  <Step title="Add New User">
+    Click "Add Custom User" button in the top right.
+  </Step>
+  
+  <Step title="Fill Required Fields">
+    Enter the following information:
+    - **Username**: Unique identifier for login
+    - **Password**: Set a secure password
+    - **Email**: User's email address
+    - **Nombre**: Full name
+    - **Rol**: Select from available roles
+    - **Comunidad**: Associate with a community (if applicable)
+    - **Telefono**: Optional phone number
+  </Step>
+  
+  <Step title="Set Permissions">
+    Configure staff and superuser status if needed:
+    - `is_staff`: Allows access to Django admin
+    - `is_superuser`: Grants all permissions
+    - `is_active`: Enables the user account
+  </Step>
+  
+  <Step title="Save User">
+    Click "Save" to create the user.
+  </Step>
+</Steps>
+
+### Using Management Script
+
+Create an admin user programmatically:
+
+```python
+# create_admin_user.py:13
+user, created = CustomUser.objects.get_or_create(
+    username="admin",
+    defaults={
+        "email": "admin@admin.cl",
+        "nombre": "Administrador Principal",
+        "rol": "Admin Consejo",
+        "comunidad": None
+    }
+)
+
+if created:
+    user.set_password("admin123")
+    user.save()
+```
+
+Run the script:
+
+```bash
+python create_admin_user.py
+```
+
+### Via API
+
+Create users through the REST API endpoint:
+
+```bash
+POST /api/usuarios/create/
+Content-Type: application/json
+Authorization: Bearer <access_token>
+
+{
+  "username": "jdoe",
+  "nombre": "John Doe",
+  "email": "jdoe@example.com",
+  "password": "securepassword123",
+  "rol": "usuario",
+  "comunidad": 1
+}
+```
+
+<Note>
+  Only users with `Admin Consejo` or `Admin Comunidad` roles can create new users. Community admins can only create users within their own community.
+</Note>
+
+## Managing Users
+
+### Django Admin Interface
+
+The `CustomUserAdmin` class provides a comprehensive interface:
+
+```python
+# usuarios/admin.py:6
+list_display = (
+    'username', 'email', 'rol', 'telefono', 
+    'es_auditor', 'is_active', 'is_staff', 
+    'is_superuser', 'comunidad'
+)
+search_fields = ('username', 'email', 'rol', 'telefono')
+```
+
+Features:
+- **List View**: See all users with their key attributes
+- **Search**: Find users by username, email, role, or phone
+- **Filtering**: Filter by role, community, or status
+- **Bulk Actions**: Activate/deactivate multiple users
+
+### Linking Users to Communities
+
+<Steps>
+  <Step title="Edit User">
+    In Django admin, click on the user you want to modify.
+  </Step>
+  
+  <Step title="Select Community">
+    In the user edit form, use the "Comunidad" dropdown to select a community.
+  </Step>
+  
+  <Step title="Save Changes">
+    Click "Save" to update the user's community association.
+  </Step>
+</Steps>
+
+<Warning>
+  Changing a user's community will affect their access to period and project data. They will only see data for their assigned community.
+</Warning>
+
+## User Permissions
+
+### Permission Classes
+
+The system implements role-based permission classes:
+
+```python
+# usuarios/permissions.py:3
+class IsAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'admin'
+
+class IsAuditor(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and (request.user.rol == 'auditor' or request.user.es_auditor)
+```
+
+Available permission classes:
+- `IsAdmin`: Requires `rol='admin'`
+- `IsAuditor`: Requires `rol='auditor'` or `es_auditor=True`
+- `IsDirectorio`: Requires `rol='directorio'`
+- `IsPresidente`: Requires `rol='presidente'`
+- `IsITO`: Requires `rol='ito'`
+- `IsCPA`: Requires `rol='cpa'`
+
+### Role-Based Access
+
+| Role | Can Create Users | Can Manage Periods | Can Access Admin |
+|------|-----------------|-------------------|------------------|
+| Admin | Yes (own community) | Yes | Yes |
+| Auditor | No | Read-only | No |
+| Usuario | No | No | No |
+| Directorio | Limited | Read-only | No |
+| Presidente | Limited | Read-only | No |
+| ITO | Limited | Read-only | No |
+| CPA | No | Read-only | No |
+
+## Authentication
+
+### JWT Token Authentication
+
+Users authenticate using JWT tokens with the following configuration:
+
+```python
+# auditoriapp/settings.py:163
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+}
+```
+
+### Login Flow
+
+<Steps>
+  <Step title="User Submits Credentials">
+    POST request to `/api/usuarios/login/` with username and password.
+  </Step>
+  
+  <Step title="Authentication">
+    Django authenticates the user against the database.
+  </Step>
+  
+  <Step title="Token Generation">
+    On success, generates access token (60 min) and refresh token (7 days).
+  </Step>
+  
+  <Step title="User Data Response">
+    Returns tokens plus user data including role and community information.
+  </Step>
+</Steps>
+
+Example response:
+
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "user": {
+    "id": "1",
+    "username": "admin",
+    "nombre": "Administrador Principal",
+    "email": "admin@admin.cl",
+    "rol": "admin",
+    "comunidad": {
+      "id": "1",
+      "nombre": "Comunidad Ejemplo"
+    }
+  }
+}
+```
+
+## User Deactivation
+
+To deactivate a user without deleting their account:
+
+<Steps>
+  <Step title="Access User in Admin">
+    Navigate to the user in Django admin.
+  </Step>
+  
+  <Step title="Uncheck Active Status">
+    Uncheck the "Active" checkbox in the "Permissions" section.
+  </Step>
+  
+  <Step title="Save">
+    Save the user. They will no longer be able to log in.
+  </Step>
+</Steps>
+
+<Note>
+  Deactivated users retain their data associations but cannot authenticate. This is preferable to deletion for maintaining audit trails.
+</Note>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Strong Passwords" icon="lock">
+    Enforce minimum password requirements using Django's built-in validators.
+  </Card>
+  <Card title="Assign Minimal Roles" icon="shield">
+    Give users the minimum role required for their responsibilities.
+  </Card>
+  <Card title="Link to Communities" icon="building">
+    Always associate users with their appropriate community for data isolation.
+  </Card>
+  <Card title="Regular Audits" icon="magnifying-glass">
+    Periodically review user accounts and deactivate unused ones.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### User Cannot Login
+
+1. Verify the user account is active (`is_active=True`)
+2. Check password is set correctly
+3. Ensure the username is correct (case-sensitive)
+4. Verify JWT token configuration in settings
+
+### User Cannot Create Other Users
+
+1. Verify user has `Admin Consejo` or `Admin Comunidad` role
+2. Check user is authenticated
+3. For community admins, ensure they have a community assigned
+
+### User Sees No Data
+
+1. Verify user is linked to a community
+2. Check that the community has active periods
+3. Ensure the user's role has appropriate permissions

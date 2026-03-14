@@ -1,0 +1,232 @@
+---
+title: Introduction to Auditoriapp
+description: A SaaS platform for auditing and transparent fund management for community organizations
+---
+
+## What is Auditoriapp?
+
+Auditoriapp is a **multi-tenant SaaS platform** designed for auditing, traceability, and transparent fund management for community projects across multiple beneficiary organizations. The system replaces manual and opaque workflows (Excel spreadsheets and PDFs) with a centralized digital solution that ensures **data isolation** between communities while providing real-time oversight tools for auditors.
+
+<CardGroup cols={2}>
+  <Card title="For Communities" icon="users">
+    Manage projects, budgets, and financial accountability with complete transparency and proper documentation
+  </Card>
+  <Card title="For Auditors" icon="shield-check">
+    Cross-entity visibility for validation, control, and real-time monitoring of all community activities
+  </Card>
+</CardGroup>
+
+## The Problem It Solves
+
+Traditional community fund management faces critical challenges:
+
+- **Manual processes**: Excel spreadsheets and PDF documents create inefficiency and errors
+- **Lack of transparency**: Difficult to track fund allocation and usage across projects
+- **No audit trail**: Missing proper documentation and accountability mechanisms
+- **Data silos**: Each community manages data separately with no centralized oversight
+- **Document management chaos**: Physical receipts, invoices, and evidence scattered across files
+
+Auditoriapp transforms this workflow into a modern, digital, and transparent system.
+
+## Key Features
+
+### Multi-Tenant Architecture
+
+The core of the system is its **logical multi-tenant architecture**, ensuring each organization accesses only their own data:
+
+```python title="backend/comunidades/models.py"
+class Comunidad(models.Model):
+    nombre = models.CharField(max_length=255)
+    activa = models.BooleanField(default=True)
+    creada_en = models.DateTimeField(auto_now_add=True)
+    usuario = models.ForeignKey('usuarios.CustomUser', on_delete=models.CASCADE, 
+                                null=True, blank=True, related_name='comunidades')
+
+    def __str__(self):
+        return self.nombre
+```
+
+Data isolation is implemented at the ORM level through filters that segregate information for each community entity.
+
+### Role-Based Access Control (RBAC)
+
+The platform implements comprehensive role-based security:
+
+```python title="backend/usuarios/models.py"
+class CustomUser(AbstractUser):
+    nombre = models.CharField(max_length=100, blank=True)
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE, 
+                                  null=True, blank=True)
+    rol = models.CharField(max_length=20, choices=[
+        ('admin', 'Admin'),
+        ('auditor', 'Auditor'),
+        ('usuario', 'Usuario'),
+        ('directorio', 'Directorio Comunidad'),
+        ('presidente', 'Presidente Comunidad'),
+        ('ito', 'ITO / Responsable'),
+        ('cpa', 'CPA Revisor')
+    ], default='usuario')
+    telefono = models.CharField(max_length=20, blank=True)
+    es_auditor = models.BooleanField(default=False)
+```
+
+**Key Roles:**
+
+- **Admin Comunidad**: Complete management of community projects and financial accountability reports
+- **Auditor Central**: Cross-community visibility for validation and control
+- **CPA Revisor**: Review and approve financial renditions
+- **ITO/Responsable**: Technical oversight and project monitoring
+- **Presidente Comunidad**: Legal representative with approval authority
+
+### Financial Traceability
+
+Complete workflow from budget allocation (Periods) to expense justification (Renditions):
+
+<Steps>
+  <Step title="Period Creation">
+    Define budget periods with assigned amounts and date ranges for each community
+    
+    ```python title="backend/periodos/models.py"
+    class Periodo(models.Model):
+        comunidad = models.ForeignKey(Comunidad, on_delete=models.CASCADE)
+        nombre = models.CharField(max_length=255)
+        fecha_inicio = models.DateField()
+        fecha_fin = models.DateField()
+        monto_asignado = models.DecimalField(max_digits=15, decimal_places=2)
+        activo = models.BooleanField(default=True)
+    ```
+  </Step>
+  
+  <Step title="Project Setup">
+    Create projects with budgets, objectives, and governance documentation
+  </Step>
+  
+  <Step title="Expense Tracking">
+    Record expenditures with supporting documentation (invoices, receipts)
+  </Step>
+  
+  <Step title="Review & Approval">
+    Auditors and CPAs review and approve financial renditions
+  </Step>
+</Steps>
+
+### Data Visualization
+
+Interactive charts powered by Recharts for monitoring budget execution:
+
+- **Project status dashboards** with KPI cards
+- **Pie charts** showing rendition states (pending, approved, observed, rejected)
+- **Bar charts** comparing budgeted vs. executed amounts
+- **Real-time alerts** for overdue projects and pending reviews
+
+### Document Management
+
+Systematic upload and validation of evidence tied to each transaction:
+
+- Assembly meeting minutes (actas)
+- Vendor quotations and contracts
+- Invoices and receipts
+- Payment transfer confirmations
+- Progress photos and reports
+
+## Project Workflow States
+
+```python title="backend/proyectos/models.py"
+ESTADO_CHOICES = [
+    ('borrador', 'Borrador'),
+    ('revision_interna', 'En Revisión Interna'),
+    ('revision_cpa', 'En Revisión CPA'),
+    ('observaciones', 'Con Observaciones'),
+    ('aprobado', 'Aprobado'),
+    ('ejecucion', 'En Ejecución'),
+    ('cierre', 'Cierre'),
+]
+```
+
+Projects flow through these states with complete audit trails:
+
+1. **Borrador**: Initial draft stage
+2. **Revisión Interna**: Internal community review
+3. **Revisión CPA**: External auditor review
+4. **Observaciones**: Requires corrections
+5. **Aprobado**: Approved for execution
+6. **Ejecución**: Active project implementation
+7. **Cierre**: Project completed and closed
+
+## Architecture Overview
+
+<CardGroup cols={2}>
+  <Card title="Backend" icon="server">
+    **Django 5.0.7** with Django REST Framework for API endpoints
+    
+    - JWT authentication via SimpleJWT
+    - PostgreSQL/MySQL database support
+    - ORM-level multi-tenancy filters
+    - Swagger/OpenAPI documentation
+  </Card>
+  
+  <Card title="Frontend" icon="browser">
+    **React 19** with Vite build system
+    
+    - TailwindCSS + DaisyUI for styling
+    - Recharts for data visualization
+    - React Router for navigation
+    - JWT token-based auth flow
+  </Card>
+</CardGroup>
+
+## Target Users
+
+### Community Organizations
+
+- **Housing communities** managing common funds
+- **Neighborhood associations** with project budgets
+- **Community councils** requiring transparent accounting
+- **Non-profit organizations** managing grants and donations
+
+### Auditors & Oversight
+
+- **Internal auditors** monitoring multiple communities
+- **CPA firms** providing external review services
+- **Government oversight agencies** requiring accountability reports
+- **Funding organizations** tracking grant utilization
+
+## Why Auditoriapp?
+
+<CardGroup cols={3}>
+  <Card title="Transparency" icon="eye">
+    Complete visibility into fund allocation and usage with immutable audit trails
+  </Card>
+  
+  <Card title="Compliance" icon="file-check">
+    Structured workflows ensure all required documentation and approvals are in place
+  </Card>
+  
+  <Card title="Efficiency" icon="bolt">
+    Replace manual Excel/PDF processes with automated digital workflows
+  </Card>
+  
+  <Card title="Security" icon="lock">
+    Multi-tenant data isolation ensures each community's data remains private
+  </Card>
+  
+  <Card title="Real-time" icon="chart-line">
+    Live dashboards and KPIs provide instant insights into project status
+  </Card>
+  
+  <Card title="Scalable" icon="arrows-maximize">
+    SaaS architecture supports unlimited communities on a single platform
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Auditoriapp running locally in under 10 minutes
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed setup instructions for development and production
+  </Card>
+</CardGroup>

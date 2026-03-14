@@ -1,0 +1,165 @@
+---
+title: User Roles Overview
+description: Complete guide to user roles, permissions, and access control in Auditoriapp
+---
+
+Auditoriapp implements a role-based access control (RBAC) system with multi-tenancy support. Each user is assigned a single role that determines their capabilities within the system.
+
+## Available Roles
+
+The platform supports seven distinct user roles, defined in the `CustomUser` model:
+
+<CardGroup cols={2}>
+  <Card title="Community Admin" icon="user-tie" iconType="duotone">
+    Manages projects, budgets, and users within a single community
+  </Card>
+  <Card title="Auditor" icon="clipboard-check" iconType="duotone">
+    Cross-community access to review all projects and financial data
+  </Card>
+  <Card title="Usuario" icon="user" iconType="duotone">
+    Basic community member with limited access
+  </Card>
+  <Card title="Directorio Comunidad" icon="users" iconType="duotone">
+    Board member with project approval authority
+  </Card>
+  <Card title="Presidente Comunidad" icon="crown" iconType="duotone">
+    Community president with project approval authority
+  </Card>
+  <Card title="ITO / Responsable" icon="hard-hat" iconType="duotone">
+    Technical officer who reports physical project progress
+  </Card>
+  <Card title="CPA Revisor" icon="badge-check" iconType="duotone">
+    Certified reviewer with final approval authority
+  </Card>
+</CardGroup>
+
+## Role Definitions
+
+Roles are stored in the `usuarios.models.CustomUser` model:
+
+```python
+class CustomUser(AbstractUser):
+    rol = models.CharField(max_length=20, choices=[
+        ('admin', 'Admin'),
+        ('auditor', 'Auditor'),
+        ('usuario', 'Usuario'),
+        ('directorio', 'Directorio Comunidad'),
+        ('presidente', 'Presidente Comunidad'),
+        ('ito', 'ITO / Responsable'),
+        ('cpa', 'CPA Revisor')
+    ], default='usuario')
+    comunidad = models.ForeignKey('comunidades.Comunidad', ...)
+    es_auditor = models.BooleanField(default=False)
+```
+
+**Source:** `backend/usuarios/models.py:7-15`
+
+## Permission Classes
+
+Each role has a corresponding permission class for API endpoint protection:
+
+| Permission Class | Role Check | Source |
+|-----------------|------------|--------|
+| `IsAdmin` | `user.rol == 'admin'` | `usuarios/permissions.py:3-5` |
+| `IsAuditor` | `user.rol == 'auditor' or user.es_auditor` | `usuarios/permissions.py:7-9` |
+| `IsDirectorio` | `user.rol == 'directorio'` | `usuarios/permissions.py:11-13` |
+| `IsPresidente` | `user.rol == 'presidente'` | `usuarios/permissions.py:15-17` |
+| `IsITO` | `user.rol == 'ito'` | `usuarios/permissions.py:19-21` |
+| `IsCPA` | `user.rol == 'cpa'` | `usuarios/permissions.py:23-25` |
+
+## Multi-Tenancy Model
+
+### Community Scoping
+
+Most users are assigned to a single community via the `comunidad` foreign key. This enforces data isolation:
+
+```python
+def get_queryset(self):
+    user = self.request.user
+    if hasattr(user, 'comunidad') and user.comunidad:
+        return Proyecto.objects.filter(comunidad=user.comunidad)
+    return Proyecto.objects.none()
+```
+
+**Source:** `backend/proyectos/views.py:18-22`
+
+### Cross-Community Access
+
+Only **Auditor** roles can access data across all communities for oversight purposes. Regular users see only their community's data.
+
+## Role Hierarchy
+
+### Approval Authority
+
+Project approval follows a strict hierarchy:
+
+1. **ITO** - Reports physical progress
+2. **Admin** - Creates and manages projects
+3. **Presidente/Directorio** - Sends projects to CPA review
+4. **CPA** - Final approval or rejection
+
+### State Transition Rules
+
+From `backend/proyectos/views.py:41-63`:
+
+- **CPA approval** (line 42-46): Only `cpa` role can approve projects
+- **Send to CPA** (line 54-58): Only `presidente`, `directorio`, or `admin` can advance to CPA review
+- **Issue observations** (line 61-63): Only `cpa` can return projects with observations
+
+## Role Assignment
+
+### During User Creation
+
+Admins can create users with specific roles:
+
+```python
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user_view(request):
+    if request.user.rol not in ['Admin Consejo', 'Admin Comunidad']:
+        return Response({'error': 'No tienes permisos para crear usuarios'}, 
+                       status=status.HTTP_403_FORBIDDEN)
+```
+
+**Source:** `backend/usuarios/views.py:69-75`
+
+### Community Assignment
+
+Community admins automatically assign new users to their own community:
+
+```python
+if request.user.rol == 'Admin Comunidad':
+    serializer.validated_data['comunidad'] = request.user.comunidad
+```
+
+**Source:** `backend/usuarios/views.py:80-81`
+
+## Permission Matrix
+
+| Action | Admin | Auditor | Presidente | Directorio | ITO | CPA | Usuario |
+|--------|-------|---------|------------|------------|-----|-----|--------|
+| View own community projects | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| View all communities | ✗ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Create projects | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Send to CPA review | ✓ | ✗ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Approve projects | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
+| Report physical progress | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ | ✗ |
+| Review renditions | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
+| Create users | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Community Admin" icon="user-tie" href="/roles/community-admin">
+    Learn about community administration capabilities
+  </Card>
+  <Card title="Auditor Role" icon="clipboard-check" href="/roles/auditor">
+    Understand cross-community audit functions
+  </Card>
+  <Card title="ITO & CPA Roles" icon="hard-hat" href="/roles/ito-cpa">
+    Technical review and approval workflows
+  </Card>
+  <Card title="Authentication" icon="key" href="/api/authentication">
+    See how to authenticate and access role information
+  </Card>
+</CardGroup>

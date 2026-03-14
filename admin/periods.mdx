@@ -1,0 +1,480 @@
+---
+title: 'Period Management'
+description: 'Manage budget periods, configure allocations, and track community finances'
+icon: 'calendar-days'
+---
+
+## Overview
+
+Periods (`Periodo`) represent budget cycles for communities. Each period has a defined time frame, budget allocations, and tracks financial activity for projects and expenditures.
+
+## Period Model
+
+The `Periodo` model manages budget cycles:
+
+```python
+# periodos/models.py:13
+class Periodo(models.Model):
+    comunidad = models.ForeignKey(Comunidad, on_delete=models.CASCADE, related_name='periodos')
+    nombre = models.CharField(max_length=255)
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField()
+    monto_asignado = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    monto_anterior = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    activo = models.BooleanField(default=True)
+```
+
+### Field Reference
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `comunidad` | ForeignKey | The community this period belongs to |
+| `nombre` | CharField | Period name (e.g., "Periodo 2024") |
+| `fecha_inicio` | DateField | Start date of the budget period |
+| `fecha_fin` | DateField | End date of the budget period |
+| `monto_asignado` | Decimal | New budget allocated for this period |
+| `monto_anterior` | Decimal | Remaining balance from previous period |
+| `activo` | Boolean | Whether the period is currently active |
+
+## Creating Periods
+
+### Using Django Admin
+
+<Steps>
+  <Step title="Access Django Admin">
+    Navigate to `/admin` and login with admin credentials.
+  </Step>
+  
+  <Step title="Navigate to Periods">
+    Click on "Periodos" under the "PERIODOS" section.
+  </Step>
+  
+  <Step title="Add New Period">
+    Click "Add Periodo" button in the top right.
+  </Step>
+  
+  <Step title="Configure Period Details">
+    Enter the following information:
+    - **Nombre**: Descriptive name (e.g., "Periodo 2024", "Q1 2024")
+    - **Fecha inicio**: Start date of the budget cycle
+    - **Fecha fin**: End date of the budget cycle
+    - **Comunidad**: Select the community (auto-filled for community admins)
+    - **Monto asignado**: New budget allocation for this period
+    - **Monto anterior**: Carryover from previous period (default: 0)
+    - **Activo**: Check to make this period active
+  </Step>
+  
+  <Step title="Save Period">
+    Click "Save" to create the period.
+  </Step>
+</Steps>
+
+<Note>
+  For community admins (`rol='admin'`), the `comunidad` field is automatically set to their assigned community when creating periods in Django admin.
+</Note>
+
+### Via API
+
+Create periods through the REST API:
+
+```bash
+POST /api/periodos/
+Content-Type: application/json
+Authorization: Bearer <access_token>
+
+{
+  "nombre": "Periodo 2024",
+  "fecha_inicio": "2024-01-01",
+  "fecha_fin": "2024-12-31",
+  "monto_asignado": 50000000.00,
+  "monto_anterior": 5000000.00,
+  "activo": true
+}
+```
+
+<Info>
+  The `comunidad` field is automatically set based on the authenticated user's community. Users can only create periods for their own community.
+</Info>
+
+## Managing Budget Allocations
+
+### Setting monto_asignado
+
+The `monto_asignado` field represents the **new budget** allocated for the current period.
+
+<Steps>
+  <Step title="Determine Budget">
+    Consult with community leadership to determine the budget allocation for the period.
+  </Step>
+  
+  <Step title="Edit Period">
+    In Django admin, click on the period to edit.
+  </Step>
+  
+  <Step title="Update Monto Asignado">
+    Enter the allocated amount in the "Monto asignado" field.
+    
+    Example: `50000000.00` (50 million)
+  </Step>
+  
+  <Step title="Save Changes">
+    Click "Save" to update the budget allocation.
+  </Step>
+</Steps>
+
+### Setting monto_anterior
+
+The `monto_anterior` field represents **remaining funds** from the previous period.
+
+<Steps>
+  <Step title="Calculate Previous Balance">
+    Determine the unused balance from the previous period.
+  </Step>
+  
+  <Step title="Edit Period">
+    In Django admin, click on the period to edit.
+  </Step>
+  
+  <Step title="Update Monto Anterior">
+    Enter the carryover amount in the "Monto anterior" field.
+    
+    Example: `5000000.00` (5 million remaining)
+  </Step>
+  
+  <Step title="Save Changes">
+    Click "Save" to update the carryover balance.
+  </Step>
+</Steps>
+
+### Total Available Budget
+
+The total budget available in a period is calculated as:
+
+```
+Total Disponible = monto_asignado + monto_anterior
+```
+
+Example:
+- New allocation: $50,000,000
+- Previous balance: $5,000,000
+- **Total available**: $55,000,000
+
+## Period Lifecycle
+
+### Active Periods
+
+The system uses a custom manager to retrieve the current active period:
+
+```python
+# periodos/models.py:8
+class PeriodoManager(models.Manager):
+    def periodo_actual(self, comunidad):
+        hoy = timezone.now().date()
+        return self.filter(
+            comunidad=comunidad, 
+            activo=True, 
+            fecha_inicio__lte=hoy, 
+            fecha_fin__gte=hoy
+        ).order_by('-fecha_inicio').first()
+```
+
+A period is considered "current" when:
+- `activo=True`
+- Today's date is between `fecha_inicio` and `fecha_fin`
+- Belongs to the specified community
+
+### Activating/Deactivating Periods
+
+<Tabs>
+  <Tab title="Activate Period">
+    <Steps>
+      <Step title="Edit Period">
+        Navigate to the period in Django admin.
+      </Step>
+      
+      <Step title="Check Activo">
+        Check the "Activo" checkbox.
+      </Step>
+      
+      <Step title="Save">
+        Click "Save" to activate the period.
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Deactivate Period">
+    <Steps>
+      <Step title="Edit Period">
+        Navigate to the period in Django admin.
+      </Step>
+      
+      <Step title="Uncheck Activo">
+        Uncheck the "Activo" checkbox.
+      </Step>
+      
+      <Step title="Save">
+        Click "Save" to deactivate the period.
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+<Warning>
+  Only one period should be active at a time for each community. Multiple active periods can cause confusion in budget tracking.
+</Warning>
+
+## Closing Periods
+
+The system provides an automated period closing workflow:
+
+```python
+# periodos/views.py:26
+@rest_framework.decorators.action(detail=True, methods=['post'])
+def cerrar(self, request, pk=None):
+    periodo = self.get_object()
+    
+    # Calculate final balances
+    gastos_pagados = Rendicion.objects.filter(
+        proyecto__periodo=periodo,
+        estado='pagado'
+    ).aggregate(total=Sum('monto_rendido'))['total'] or 0
+    
+    total_recursos = periodo.monto_asignado + periodo.monto_anterior
+    saldo_final = total_recursos - gastos_pagados
+    
+    # Close current period
+    periodo.activo = False
+    periodo.save()
+    
+    # Create next period automatically
+    dia_siguiente = periodo.fecha_fin + datetime.timedelta(days=1)
+    fin_siguiente = dia_siguiente.replace(year=dia_siguiente.year + 1) - datetime.timedelta(days=1)
+    
+    siguiente = Periodo.objects.create(
+        comunidad=periodo.comunidad,
+        nombre=f"Periodo {dia_siguiente.year}",
+        fecha_inicio=dia_siguiente,
+        fecha_fin=fin_siguiente,
+        monto_asignado=0,
+        monto_anterior=saldo_final,
+        activo=True
+    )
+```
+
+### Close Period via API
+
+<Steps>
+  <Step title="Call Close Endpoint">
+    Send a POST request to close the period:
+    
+    ```bash
+    POST /api/periodos/{id}/cerrar/
+    Authorization: Bearer <access_token>
+    ```
+  </Step>
+  
+  <Step title="System Calculates Balances">
+    The system automatically:
+    - Sums all paid renditions for projects in this period
+    - Calculates total resources (monto_asignado + monto_anterior)
+    - Determines remaining balance
+  </Step>
+  
+  <Step title="Period Closed">
+    Sets `activo=False` on the current period.
+  </Step>
+  
+  <Step title="Next Period Created">
+    Automatically creates a new period:
+    - Starts the day after the current period ends
+    - Ends one year later
+    - `monto_anterior` set to remaining balance
+    - `monto_asignado` set to 0 (to be configured later)
+    - `activo=True`
+  </Step>
+</Steps>
+
+Example response:
+
+```json
+{
+  "message": "Periodo cerrado exitosamente.",
+  "resumen": {
+    "total_recursos": 55000000.00,
+    "gastos_pagados": 48500000.00,
+    "saldo_remanente": 6500000.00
+  },
+  "siguiente_periodo": {
+    "id": 2,
+    "nombre": "Periodo 2025",
+    "fecha_inicio": "2025-01-01",
+    "fecha_fin": "2025-12-31",
+    "monto_asignado": 0.00,
+    "monto_anterior": 6500000.00,
+    "activo": true
+  }
+}
+```
+
+<Info>
+  The automated period closing ensures proper financial continuity by transferring remaining funds to the next period's `monto_anterior`.
+</Info>
+
+## Tracking Period Finances
+
+### Calculating Remaining Balance
+
+The system calculates the remaining balance (saldo remanente) for each period:
+
+```python
+# periodos/serializers.py:13
+def get_saldo_remanente(self, obj):
+    from rendiciones.models import Rendicion
+    total_pagado = Rendicion.objects.filter(
+        proyecto__periodo=obj, 
+        estado='pagado'
+    ).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+    
+    total_disponible = (obj.monto_asignado or 0) + (obj.monto_anterior or 0)
+    return total_disponible - total_pagado
+```
+
+**Formula:**
+```
+Saldo Remanente = (monto_asignado + monto_anterior) - total_pagado
+```
+
+Where:
+- `total_pagado` = Sum of all paid renditions for projects in this period
+- `total_disponible` = Total budget available
+
+### Period Financial Summary
+
+<CardGroup cols={3}>
+  <Card title="Monto Asignado" icon="circle-dollar-to-slot">
+    New budget allocated for the period
+  </Card>
+  <Card title="Monto Anterior" icon="rotate-left">
+    Carryover from previous period
+  </Card>
+  <Card title="Total Disponible" icon="wallet">
+    Sum of assigned and previous amounts
+  </Card>
+  <Card title="Gastos Pagados" icon="money-bill-transfer">
+    Total paid renditions in period
+  </Card>
+  <Card title="Saldo Remanente" icon="piggy-bank">
+    Remaining balance available
+  </Card>
+  <Card title="Proyectos" icon="diagram-project">
+    Number of projects in period
+  </Card>
+</CardGroup>
+
+## Period Queries
+
+### Get Current Period
+
+```python
+from periodos.models import Periodo
+
+# Get current active period for a community
+current_period = Periodo.objects.periodo_actual(comunidad)
+
+if current_period:
+    print(f"Current period: {current_period.nombre}")
+    print(f"Budget: {current_period.monto_asignado}")
+else:
+    print("No active period found")
+```
+
+### List All Periods
+
+```bash
+GET /api/periodos/
+Authorization: Bearer <access_token>
+```
+
+Response:
+```json
+[
+  {
+    "id": 1,
+    "nombre": "Periodo 2024",
+    "fecha_inicio": "2024-01-01",
+    "fecha_fin": "2024-12-31",
+    "comunidad": 1,
+    "comunidad_nombre": "Comunidad Ejemplo",
+    "monto_asignado": 50000000.00,
+    "monto_anterior": 5000000.00,
+    "activo": true,
+    "saldo_remanente": 6500000.00
+  }
+]
+```
+
+### Filter by Community
+
+The API automatically filters periods by the authenticated user's community:
+
+```python
+# periodos/views.py:13
+def get_queryset(self):
+    user = self.request.user
+    if hasattr(user, 'comunidad') and user.comunidad:
+        return Periodo.objects.filter(comunidad=user.comunidad)
+    return Periodo.objects.none()
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="One Active Period" icon="1">
+    Maintain only one active period per community at a time.
+  </Card>
+  <Card title="Use Descriptive Names" icon="tag">
+    Name periods clearly (e.g., "Periodo 2024" or "Q1 2024").
+  </Card>
+  <Card title="Set Accurate Dates" icon="calendar-check">
+    Ensure fecha_inicio and fecha_fin accurately reflect the budget cycle.
+  </Card>
+  <Card title="Transfer Balances" icon="arrow-right-arrow-left">
+    Always transfer remaining funds to monto_anterior in the next period.
+  </Card>
+  <Card title="Close Properly" icon="door-closed">
+    Use the automated closing process to ensure financial continuity.
+  </Card>
+  <Card title="Regular Reviews" icon="chart-line">
+    Monitor saldo_remanente throughout the period to track spending.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+### No Active Period Found
+
+1. Verify a period exists for the community
+2. Check that `activo=True`
+3. Ensure current date is between `fecha_inicio` and `fecha_fin`
+4. Confirm user is linked to the correct community
+
+### Cannot Create Period
+
+1. Verify user has appropriate role (admin)
+2. Check user is linked to a community
+3. Ensure all required fields are filled
+4. Verify dates are valid (fecha_inicio < fecha_fin)
+
+### Incorrect Saldo Remanente
+
+1. Verify all renditions are properly marked as 'pagado'
+2. Check that projects are correctly linked to the period
+3. Ensure monto_asignado and monto_anterior are set correctly
+4. Review the rendition aggregate calculation
+
+### Period Cannot Be Closed
+
+1. Verify period is currently active
+2. Check user has permission to close periods
+3. Ensure there are no system errors in the calculation
+4. Review the logs for detailed error messages

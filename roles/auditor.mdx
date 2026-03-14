@@ -1,0 +1,372 @@
+---
+title: Auditor Role
+description: Cross-community visibility and audit capabilities in Auditoriapp
+---
+
+The **Auditor** role provides cross-community oversight and transparency capabilities. Unlike other roles that are scoped to a single community, auditors can access data across all communities for audit and compliance purposes.
+
+## Role Definition
+
+Auditors are identified by either:
+
+```python
+user.rol == 'auditor' or user.es_auditor == True
+```
+
+**Source:** `backend/usuarios/permissions.py:7-9`
+
+This dual-check allows:
+- **Primary role**: Users with `rol='auditor'`
+- **Flag-based**: Users with other primary roles who also have auditor privileges via `es_auditor=True`
+
+## Core Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Cross-Community Access" icon="building" iconType="duotone">
+    View data from all communities, not just one
+  </Card>
+  <Card title="Project Oversight" icon="folder-tree" iconType="duotone">
+    Monitor all projects across the platform
+  </Card>
+  <Card title="Financial Visibility" icon="chart-mixed" iconType="duotone">
+    Access complete financial data and renditions
+  </Card>
+  <Card title="Audit Trail" icon="list-timeline" iconType="duotone">
+    Review project state changes and approval history
+  </Card>
+</CardGroup>
+
+## Permission Class
+
+The `IsAuditor` permission class protects auditor-only endpoints:
+
+```python
+class IsAuditor(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and (
+            request.user.rol == 'auditor' or request.user.es_auditor
+        )
+```
+
+**Source:** `backend/usuarios/permissions.py:7-9`
+
+## Access Scope Differences
+
+### Standard User Query Filtering
+
+Regular users (Admin, ITO, etc.) see only their community's data:
+
+```python
+def get_queryset(self):
+    user = self.request.user
+    if hasattr(user, 'comunidad') and user.comunidad:
+        return Proyecto.objects.filter(comunidad=user.comunidad)
+    return Proyecto.objects.none()
+```
+
+**Source:** `backend/proyectos/views.py:18-22`
+
+### Auditor Query Access
+
+Auditors would access unfiltered querysets or custom auditor views (implementation depends on requirements):
+
+```python
+# Standard implementation - all communities
+queryset = Proyecto.objects.all()
+
+# Or auditor-specific endpoint
+@api_view(['GET'])
+@permission_classes([IsAuditor])
+def auditor_all_projects(request):
+    proyectos = Proyecto.objects.all().select_related('comunidad')
+    return Response(ProyectoSerializer(proyectos, many=True).data)
+```
+
+<Note>
+The current codebase shows community-scoped filtering. Auditor-specific endpoints with cross-community access should be implemented as needed based on audit requirements.
+</Note>
+
+## What Auditors Can Monitor
+
+### 1. All Community Projects
+
+Auditors can view:
+- Project details from all communities
+- Budget allocations and spending
+- Project states and workflow progression
+- Timeline adherence and delays
+
+### 2. Financial Renditions
+
+Complete visibility into:
+
+```python
+# All renditions across communities
+Rendicion.objects.all().select_related('proyecto__comunidad')
+```
+
+Data includes:
+- Submitted amounts (`monto_rendido`)
+- Approval status (`estado`: pendiente, aprobado, observado, rechazado)
+- Review comments (`observacion`)
+- Reviewer identity (`revisor`)
+- Review timestamps (`fecha_revision`)
+
+**Source:** `backend/rendiciones/views.py:10-19`
+
+### 3. Project State History
+
+Audit trail of all state transitions:
+
+```python
+HistorialEstado.objects.create(
+    proyecto=proyecto,
+    estado_anterior=estado_anterior,
+    estado_nuevo=nuevo_estado,
+    usuario=request.user,
+    comentario=comentario
+)
+```
+
+**Source:** `backend/proyectos/views.py:71-77`
+
+Trackable events:
+- Who changed the state
+- From which state to which state
+- When the change occurred
+- Comments explaining the transition
+
+### 4. User Activity
+
+Access to user records across communities:
+- User roles and assignments
+- Community affiliations
+- Login activity (if tracked)
+
+### 5. Dashboard Aggregations
+
+While standard dashboards are community-scoped:
+
+```python
+comunidad = user.comunidad
+proyectos_qs = Proyecto.objects.filter(comunidad=comunidad)
+```
+
+**Source:** `backend/dashboard/views.py:20-23`
+
+Auditors would have access to:
+- Platform-wide KPIs
+- Cross-community comparisons
+- Consolidated financial reports
+- System-wide alerts
+
+## Audit Workflows
+
+### Compliance Review
+
+1. **Identify target community or project**
+   ```
+   GET /api/auditor/proyectos/?comunidad=123
+   ```
+
+2. **Review project details and budget**
+   ```
+   GET /api/proyectos/{id}/
+   ```
+
+3. **Check financial renditions**
+   ```
+   GET /api/rendiciones/?proyecto={id}
+   ```
+
+4. **Examine state change history**
+   ```
+   GET /api/proyectos/{id}/historial/
+   ```
+
+5. **Generate audit report** with findings
+
+### Cross-Community Analysis
+
+1. **Fetch all projects** across communities
+   ```
+   GET /api/auditor/proyectos/
+   ```
+
+2. **Compare execution rates** by community
+   ```python
+   for comunidad in Comunidad.objects.all():
+       presupuesto = Proyecto.objects.filter(
+           comunidad=comunidad
+       ).aggregate(Sum('presupuesto_total'))
+       
+       pagado = Rendicion.objects.filter(
+           proyecto__comunidad=comunidad,
+           estado='pagado'
+       ).aggregate(Sum('monto_rendido'))
+       
+       tasa_ejecucion = pagado / presupuesto
+   ```
+
+3. **Identify outliers** or anomalies
+
+4. **Flag for deeper review**
+
+### Financial Reconciliation
+
+1. **Pull all approved renditions**
+   ```
+   GET /api/auditor/rendiciones/?estado=aprobado
+   ```
+
+2. **Cross-reference with payment records**
+   ```python
+   aprobados = Rendicion.objects.filter(estado='aprobado')
+   pagados = Rendicion.objects.filter(estado='pagado')
+   pendientes_pago = aprobados.exclude(id__in=pagados.values('id'))
+   ```
+
+3. **Validate amounts and documentation**
+
+4. **Report discrepancies**
+
+## Read-Only vs. Write Access
+
+<Warning>
+Auditors typically have **read-only** access for oversight purposes. They should **not** be able to:
+- Approve or reject projects (CPA role)
+- Modify project data (Admin role)
+- Create users or change permissions
+- Alter financial records
+</Warning>
+
+The auditor role is designed for transparency and accountability, not operational control.
+
+## Dual-Role Users
+
+The `es_auditor` flag allows hybrid roles:
+
+```python
+user.rol = 'admin'        # Primary operational role
+user.es_auditor = True    # Also has audit visibility
+```
+
+**Source:** `backend/usuarios/models.py:17`
+
+This enables:
+- **Consejo admins** who also perform audits
+- **CPA reviewers** with additional audit responsibilities
+- **Cross-functional** oversight roles
+
+## Reporting Capabilities
+
+### Platform-Wide Metrics
+
+Auditors can generate reports on:
+
+- **Project distribution** by community
+- **Budget execution rates** across communities
+- **Approval timelines** and bottlenecks
+- **Rendition approval rates** by CPA reviewer
+- **Overdue projects** by community
+- **State transition patterns** and workflow efficiency
+
+### Example: Cross-Community Budget Report
+
+```python
+from django.db.models import Sum, Count
+from comunidades.models import Comunidad
+from proyectos.models import Proyecto
+from rendiciones.models import Rendicion
+
+report = []
+for comunidad in Comunidad.objects.all():
+    presupuesto = Proyecto.objects.filter(
+        comunidad=comunidad
+    ).aggregate(
+        total=Sum('presupuesto_total'),
+        count=Count('id')
+    )
+    
+    ejecutado = Rendicion.objects.filter(
+        proyecto__comunidad=comunidad,
+        estado='pagado'
+    ).aggregate(total=Sum('monto_rendido'))
+    
+    report.append({
+        'comunidad': comunidad.nombre,
+        'proyectos': presupuesto['count'],
+        'presupuesto_total': presupuesto['total'],
+        'monto_ejecutado': ejecutado['total'],
+        'porcentaje': (ejecutado['total'] / presupuesto['total'] * 100) 
+                      if presupuesto['total'] else 0
+    })
+
+return Response(report)
+```
+
+## Security Considerations
+
+<Card title="Data Access Controls" icon="shield-check" iconType="duotone">
+  Auditor access should be:
+  - Logged for accountability
+  - Limited to read operations
+  - Monitored for unusual patterns
+  - Subject to periodic review
+</Card>
+
+### Access Logging
+
+Implement audit trails for auditor activity:
+
+```python
+import logging
+
+auditor_logger = logging.getLogger('auditor_access')
+
+@api_view(['GET'])
+@permission_classes([IsAuditor])
+def auditor_view(request):
+    auditor_logger.info(
+        f"Auditor {request.user.username} accessed {request.path}"
+    )
+    # ... view logic
+```
+
+## Integration with External Systems
+
+Auditors may need to export data for:
+- Government compliance reporting
+- Third-party accounting systems
+- Data analysis tools
+- Transparency portals
+
+### Export Endpoints
+
+```python
+@api_view(['GET'])
+@permission_classes([IsAuditor])
+def export_all_rendiciones_csv(request):
+    rendiciones = Rendicion.objects.all().select_related(
+        'proyecto__comunidad'
+    )
+    # Generate CSV
+    return Response(csv_data, content_type='text/csv')
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Roles Overview" icon="users" href="/roles/overview">
+    Compare all user roles and permissions
+  </Card>
+  <Card title="Community Admin" icon="user-tie" href="/roles/community-admin">
+    Understand community-scoped operations
+  </Card>
+  <Card title="Projects API" icon="folder" href="/api/projects">
+    Project data structures and endpoints
+  </Card>
+  <Card title="Renditions API" icon="file-invoice-dollar" href="/api/renditions">
+    Financial submission data
+  </Card>
+</CardGroup>

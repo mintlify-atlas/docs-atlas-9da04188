@@ -1,0 +1,393 @@
+---
+title: 'Dashboard API'
+description: 'API endpoints for dashboard KPIs and summary statistics'
+---
+
+The Dashboard API provides aggregated statistics and KPIs for the community's financial and project management data.
+
+## Base URL
+
+All dashboard endpoints are prefixed with:
+
+```
+/api/dashboard/
+```
+
+## Authentication
+
+All endpoints require JWT authentication. Include the token in the Authorization header:
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+---
+
+## Dashboard KPIs
+
+Retrieve comprehensive KPIs and statistics for the authenticated user's community.
+
+```
+GET /api/dashboard/kpis/
+```
+
+<Info>
+All data is automatically filtered by the authenticated user's community. Users without an assigned community will receive an error.
+</Info>
+
+### Response Structure
+
+The response includes four main sections: period info, KPIs, alerts, and charts.
+
+<ResponseField name="periodo" type="object">
+  Information about the current active period
+  <Expandable title="properties">
+    <ResponseField name="nombre" type="string">
+      Name of the current period
+    </ResponseField>
+    <ResponseField name="monto_asignado" type="decimal">
+      Budget allocated for the current period
+    </ResponseField>
+    <ResponseField name="fecha_inicio" type="date">
+      Period start date
+    </ResponseField>
+    <ResponseField name="fecha_fin" type="date">
+      Period end date
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="kpis" type="object">
+  Key performance indicators
+  <Expandable title="properties">
+    <ResponseField name="total_proyectos" type="integer">
+      Total number of projects in the community
+    </ResponseField>
+    <ResponseField name="proyectos_activos" type="integer">
+      Number of projects in execution state
+    </ResponseField>
+    <ResponseField name="presupuesto_total" type="decimal">
+      Sum of all project budgets
+    </ResponseField>
+    <ResponseField name="total_pagado" type="decimal">
+      Total amount paid in renditions (estado=pagado)
+    </ResponseField>
+    <ResponseField name="total_rendido" type="decimal">
+      Total amount submitted in all renditions
+    </ResponseField>
+    <ResponseField name="total_rendido_aprobado" type="decimal">
+      Total amount in approved renditions
+    </ResponseField>
+    <ResponseField name="porcentaje_ejecucion_fin" type="decimal">
+      Execution percentage (total_pagado / presupuesto_total * 100)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="alertas" type="object">
+  Alerts and pending items
+  <Expandable title="properties">
+    <ResponseField name="rendiciones_observadas" type="integer">
+      Number of renditions with observations
+    </ResponseField>
+    <ResponseField name="rendiciones_pendientes" type="integer">
+      Number of pending renditions awaiting review
+    </ResponseField>
+    <ResponseField name="proyectos_atrasados" type="integer">
+      Number of projects past their end date but not closed
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="charts" type="object">
+  Data for dashboard charts
+  <Expandable title="properties">
+    <ResponseField name="rendiciones" type="array">
+      Rendition counts by state for pie/bar charts
+      <Expandable title="item properties">
+        <ResponseField name="name" type="string">
+          State name (Aprobado, Observado, Pendiente, Rechazado)
+        </ResponseField>
+        <ResponseField name="value" type="integer">
+          Count of renditions in this state
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.auditoriapp.com/api/dashboard/kpis/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/dashboard/kpis/', {
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+const data = await response.json();
+
+console.log('Total Projects:', data.kpis.total_proyectos);
+console.log('Execution %:', data.kpis.porcentaje_ejecucion_fin);
+console.log('Overdue Projects:', data.alertas.proyectos_atrasados);
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.auditoriapp.com/api/dashboard/kpis/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+data = response.json()
+
+print(f"Total Projects: {data['kpis']['total_proyectos']}")
+print(f"Execution %: {data['kpis']['porcentaje_ejecucion_fin']}%")
+print(f"Pending Renditions: {data['alertas']['rendiciones_pendientes']}")
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+{
+  "periodo": {
+    "nombre": "Periodo 2024",
+    "monto_asignado": "50000.00",
+    "fecha_inicio": "2024-01-01",
+    "fecha_fin": "2024-12-31"
+  },
+  "kpis": {
+    "total_proyectos": 12,
+    "proyectos_activos": 5,
+    "presupuesto_total": "125000.00",
+    "total_pagado": "67500.00",
+    "total_rendido": "75000.00",
+    "total_rendido_aprobado": "70000.00",
+    "porcentaje_ejecucion_fin": 54.0
+  },
+  "alertas": {
+    "rendiciones_observadas": 3,
+    "rendiciones_pendientes": 8,
+    "proyectos_atrasados": 2
+  },
+  "charts": {
+    "rendiciones": [
+      {
+        "name": "Aprobado",
+        "value": 25
+      },
+      {
+        "name": "Observado",
+        "value": 3
+      },
+      {
+        "name": "Pendiente",
+        "value": 8
+      },
+      {
+        "name": "Rechazado",
+        "value": 1
+      }
+    ]
+  }
+}
+```
+</ResponseExample>
+
+### Error Response
+
+<ResponseExample>
+```json No Community Assigned
+{
+  "error": "Usuario sin comunidad asignada"
+}
+```
+</ResponseExample>
+
+---
+
+## Dashboard Summary
+
+Basic summary endpoint (placeholder for future expansion).
+
+```
+GET /api/dashboard/resumen/
+```
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.auditoriapp.com/api/dashboard/resumen/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/dashboard/resumen/', {
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+{
+  "message": "Resumen endpoint"
+}
+```
+</ResponseExample>
+
+---
+
+## KPI Calculations
+
+### Financial Metrics
+
+<AccordionGroup>
+  <Accordion title="Total Paid (total_pagado)">
+    Sum of `monto_rendido` from all renditions with `estado='pagado'` in the community.
+    
+    ```sql
+    SELECT SUM(monto_rendido) 
+    FROM rendiciones 
+    WHERE proyecto.comunidad = user.comunidad 
+      AND estado = 'pagado'
+    ```
+  </Accordion>
+
+  <Accordion title="Total Submitted (total_rendido)">
+    Sum of `monto_rendido` from all renditions regardless of state.
+    
+    ```sql
+    SELECT SUM(monto_rendido) 
+    FROM rendiciones 
+    WHERE proyecto.comunidad = user.comunidad
+    ```
+  </Accordion>
+
+  <Accordion title="Total Approved (total_rendido_aprobado)">
+    Sum of `monto_rendido` from renditions with `estado='aprobado'`.
+    
+    ```sql
+    SELECT SUM(monto_rendido) 
+    FROM rendiciones 
+    WHERE proyecto.comunidad = user.comunidad 
+      AND estado = 'aprobado'
+    ```
+  </Accordion>
+
+  <Accordion title="Execution Percentage">
+    Percentage of budget actually paid out.
+    
+    ```
+    (total_pagado / presupuesto_total) * 100
+    ```
+    
+    Returns 0 if presupuesto_total is 0 to avoid division errors.
+  </Accordion>
+</AccordionGroup>
+
+### Project Metrics
+
+<AccordionGroup>
+  <Accordion title="Active Projects (proyectos_activos)">
+    Count of projects with `estado='ejecucion'`.
+  </Accordion>
+
+  <Accordion title="Overdue Projects (proyectos_atrasados)">
+    Count of projects where:
+    - `fecha_fin` < today
+    - `estado` NOT IN ('cierre', 'rechazado')
+    
+    These are projects that should be finished but haven't been closed yet.
+  </Accordion>
+</AccordionGroup>
+
+### Rendition Alerts
+
+- **Pending**: Renditions awaiting review (`estado='pendiente'`)
+- **Observed**: Renditions with issues that need attention (`estado='observado'`)
+
+---
+
+## Current Period
+
+The `periodo` field shows the currently active period for the community, determined by:
+
+- `activo=True`
+- `fecha_inicio` ≤ today ≤ `fecha_fin`
+- Ordered by `fecha_inicio` descending (most recent first)
+
+If no active period exists, the `periodo` field will be `null`.
+
+---
+
+## Usage Examples
+
+### Display Financial Summary
+
+```javascript
+const { data } = await fetch('/api/dashboard/kpis/').then(r => r.json());
+
+const financialSummary = {
+  budgetTotal: data.kpis.presupuesto_total,
+  amountPaid: data.kpis.total_pagado,
+  amountPending: data.kpis.presupuesto_total - data.kpis.total_pagado,
+  executionRate: `${data.kpis.porcentaje_ejecucion_fin.toFixed(1)}%`
+};
+```
+
+### Create Alerts Widget
+
+```javascript
+const { data } = await fetch('/api/dashboard/kpis/').then(r => r.json());
+
+const alerts = [];
+
+if (data.alertas.proyectos_atrasados > 0) {
+  alerts.push({
+    type: 'warning',
+    message: `${data.alertas.proyectos_atrasados} projects are overdue`
+  });
+}
+
+if (data.alertas.rendiciones_observadas > 0) {
+  alerts.push({
+    type: 'info',
+    message: `${data.alertas.rendiciones_observadas} renditions need attention`
+  });
+}
+
+if (data.alertas.rendiciones_pendientes > 0) {
+  alerts.push({
+    type: 'info',
+    message: `${data.alertas.rendiciones_pendientes} renditions pending review`
+  });
+}
+```
+
+### Render Renditions Chart
+
+```javascript
+const { data } = await fetch('/api/dashboard/kpis/').then(r => r.json());
+
+// Data ready for Chart.js, Recharts, or similar
+const chartData = data.charts.rendiciones;
+
+// Example with Recharts
+<PieChart>
+  <Pie data={chartData} dataKey="value" nameKey="name" />
+</PieChart>
+```
+
+---
+
+## Permissions
+
+- Requires authentication
+- Users must have an assigned community
+- All data is automatically filtered to the user's community
+- No special role requirements - all authenticated community users can access dashboard data

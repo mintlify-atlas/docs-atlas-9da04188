@@ -1,0 +1,299 @@
+---
+title: Community Admin Role
+description: Capabilities and workflows for community administrators in Auditoriapp
+---
+
+The **Community Admin** (`admin`) role manages all operations within a single community. This role has full control over projects, budgets, and users within their assigned community but cannot access data from other communities.
+
+## Role Definition
+
+Community admins are identified by:
+
+```python
+user.rol == 'admin' and user.comunidad is not None
+```
+
+**Source:** `backend/usuarios/views.py:15-16`
+
+## Core Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Project Management" icon="folder-open" iconType="duotone">
+    Create, edit, and manage all projects within the community
+  </Card>
+  <Card title="Budget Control" icon="dollar-sign" iconType="duotone">
+    View and control community budget allocation and spending
+  </Card>
+  <Card title="User Management" icon="users" iconType="duotone">
+    Create and manage users within the community
+  </Card>
+  <Card title="Dashboard Access" icon="chart-line" iconType="duotone">
+    Full access to community financial and project KPIs
+  </Card>
+</CardGroup>
+
+## Access Scope
+
+### Community-Scoped Data
+
+All data access is filtered by the admin's assigned community:
+
+```python
+def get_queryset(self):
+    user = self.request.user
+    if hasattr(user, 'comunidad') and user.comunidad:
+        return Proyecto.objects.filter(comunidad=user.comunidad)
+    return Proyecto.objects.none()
+```
+
+**Source:** `backend/proyectos/views.py:18-22`
+
+This pattern applies to:
+- **Projects**: Only projects in their community
+- **Renditions**: Only financial submissions from community projects
+- **Members**: Only socios (members) in their community
+- **Reports**: Filtered to community data only
+
+### Dashboard KPIs
+
+Community admins access comprehensive metrics for their community:
+
+```python
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_kpis(request):
+    user = request.user
+    if not hasattr(user, 'comunidad') or not user.comunidad:
+        return Response({"error": "Usuario sin comunidad asignada"}, status=400)
+    
+    comunidad = user.comunidad
+    proyectos_qs = Proyecto.objects.filter(comunidad=comunidad)
+```
+
+**Source:** `backend/dashboard/views.py:10-23`
+
+Available KPIs:
+- Total projects count
+- Active projects in execution
+- Total community budget
+- Total funds paid out
+- Renditions submitted and approved
+- Pending reviews and observations
+- Overdue projects
+
+## Project Management
+
+### Creating Projects
+
+Community admins can create projects, which are automatically assigned to their community:
+
+```python
+def perform_create(self, serializer):
+    if self.request.user.rol == 'Admin Comunidad':
+        serializer.save(comunidad=self.request.user.comunidad)
+    else:
+        serializer.save()
+```
+
+**Source:** `backend/proyectos/views.py:24-28`
+
+### State Transitions
+
+Admins can advance projects through workflow states. While they can send projects to CPA review (for testing), the normal workflow requires Presidente or Directorio approval:
+
+```python
+if request.user.rol not in ['presidente', 'directorio', 'admin']: # Admin for testing
+    return Response({'error': 'Solo Presidente o Directorio pueden enviar a CPA'}, 
+                   status=status.HTTP_403_FORBIDDEN)
+```
+
+**Source:** `backend/proyectos/views.py:55-56`
+
+## User Management
+
+### Creating Community Users
+
+Admins can create new users within their community:
+
+```python
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user_view(request):
+    if request.user.rol not in ['Admin Consejo', 'Admin Comunidad']:
+        return Response({'error': 'No tienes permisos para crear usuarios'}, 
+                       status=status.HTTP_403_FORBIDDEN)
+    
+    serializer = CreateUserSerializer(data=request.data)
+    if serializer.is_valid():
+        # Automatically assign to admin's community
+        if request.user.rol == 'Admin Comunidad':
+            serializer.validated_data['comunidad'] = request.user.comunidad
+        
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+```
+
+**Source:** `backend/usuarios/views.py:69-84`
+
+New users are automatically assigned to the admin's community and cannot be created for other communities.
+
+## Financial Oversight
+
+### Budget Tracking
+
+Community admins track financial execution through the dashboard:
+
+```python
+# Total community budget
+presupuesto_total = proyectos_qs.aggregate(Sum('presupuesto_total'))['presupuesto_total__sum'] or 0
+
+# Funds paid to projects
+total_pagado = Rendicion.objects.filter(
+    proyecto__comunidad=comunidad, 
+    estado='pagado'
+).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+
+# Execution percentage
+porcentaje_ejecucion = (total_pagado / presupuesto_total * 100) if presupuesto_total > 0 else 0
+```
+
+**Source:** `backend/dashboard/views.py:31-76`
+
+### Rendition Visibility
+
+Admins can view all renditions for community projects:
+
+```python
+def get_queryset(self):
+    user = self.request.user
+    if hasattr(user, 'comunidad') and user.comunidad:
+        return Rendicion.objects.filter(proyecto__comunidad=user.comunidad)
+    return Rendicion.objects.none()
+```
+
+**Source:** `backend/rendiciones/views.py:15-19`
+
+<Note>
+Community admins can **view** renditions but cannot **approve** them. Only CPA reviewers have approval authority.
+</Note>
+
+## Initial Setup Workflow
+
+When a community admin logs in, the system checks for an active period:
+
+```python
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def inicio_admin_comunidad(request):
+    user = request.user
+    
+    if user.rol != 'admin' or not user.comunidad:
+        return Response({'error': 'No tienes permisos de administrador de comunidad.'}, 
+                       status=status.HTTP_403_FORBIDDEN)
+    
+    periodo = Periodo.objects.periodo_actual(user.comunidad)
+    if periodo:
+        return Response({'redirect': 'dashboard', 'periodo_id': periodo.id})
+    else:
+        return Response({'redirect': 'crear_periodo'})
+```
+
+**Source:** `backend/usuarios/views.py:10-24`
+
+Workflow:
+1. If an active period exists → redirect to dashboard
+2. If no active period → prompt to create one
+
+## Typical Workflows
+
+### Project Creation and Approval
+
+1. **Create project** (Admin)
+   ```
+   POST /api/proyectos/
+   {
+     "nombre": "Community Center Renovation",
+     "presupuesto_total": 50000,
+     "estado": "borrador"
+   }
+   ```
+
+2. **Send to internal review** (Admin)
+   ```
+   POST /api/proyectos/{id}/cambiar_estado/
+   {
+     "nuevo_estado": "revision_interna",
+     "comentario": "Ready for board review"
+   }
+   ```
+
+3. **Presidente/Directorio approves** → Sends to CPA
+
+4. **CPA reviews and approves** → Project enters execution
+
+### Budget Period Management
+
+1. **Create new period** (Admin)
+   ```
+   POST /api/periodos/
+   {
+     "nombre": "2026 Q1",
+     "monto_asignado": 200000,
+     "fecha_inicio": "2026-01-01",
+     "fecha_fin": "2026-03-31"
+   }
+   ```
+
+2. **Monitor KPIs** (Admin)
+   ```
+   GET /api/dashboard/kpis/
+   ```
+
+3. **Review alerts** for overdue projects and pending renditions
+
+### User Onboarding
+
+1. **Create user account** (Admin)
+   ```
+   POST /api/usuarios/create/
+   {
+     "username": "jperez",
+     "nombre": "Juan Pérez",
+     "email": "juan@example.com",
+     "rol": "ito",
+     "password": "secure_password"
+   }
+   ```
+   Community is automatically assigned
+
+2. **User receives credentials**
+
+3. **User logs in and accesses community data**
+
+## Limitations
+
+<Warning>
+Community admins **cannot**:
+- Access data from other communities
+- Approve projects (requires CPA role)
+- Review or approve renditions (requires CPA role)
+- Override CPA decisions
+- Report physical progress (requires ITO role)
+</Warning>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Roles Overview" icon="users" href="/roles/overview">
+    See all available roles and permissions
+  </Card>
+  <Card title="ITO & CPA" icon="badge-check" href="/roles/ito-cpa">
+    Learn about technical review roles
+  </Card>
+  <Card title="Projects API" icon="folder" href="/api/projects">
+    Project management endpoints
+  </Card>
+  <Card title="Dashboard API" icon="chart-line" href="/api/dashboard">
+    Access KPIs and metrics
+  </Card>
+</CardGroup>

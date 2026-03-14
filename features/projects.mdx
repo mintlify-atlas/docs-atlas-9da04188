@@ -1,0 +1,324 @@
+---
+title: Project Management
+description: Complete project lifecycle from draft to closure with governance and approval workflows
+---
+
+## Overview
+
+Projects in Auditoriapp represent community initiatives with complete tracking through multiple approval stages, from initial draft to final closure. Each project includes budget allocation, governance validation, and comprehensive audit trails.
+
+## Project Model Structure
+
+The `Proyecto` model contains all essential fields for project management:
+
+```python
+class Proyecto(models.Model):
+    comunidad = models.ForeignKey('comunidades.Comunidad', on_delete=models.CASCADE)
+    periodo = models.ForeignKey('periodos.Periodo', on_delete=models.CASCADE)
+    nombre = models.CharField(max_length=255)
+    descripcion = models.TextField(default='') 
+    fecha_inicio = models.DateField(null=True, blank=True) 
+    fecha_fin = models.DateField(null=True, blank=True)
+    presupuesto_total = models.DecimalField(max_digits=12, decimal_places=2, default=0) 
+    estado = models.CharField(max_length=50, choices=ESTADO_CHOICES, default='borrador')
+    total_rendido = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    
+    # Governance fields
+    objetivos = models.TextField(help_text="Objetivos principales del proyecto")
+    justificacion = models.TextField(help_text="Por qué es necesario este proyecto")
+    beneficiarios_estimados = models.PositiveIntegerField(help_text="Número de personas beneficiadas")
+    quorum_asamblea = models.PositiveIntegerField(help_text="Número de asistentes en el Acta")
+    
+    # Digital signature
+    firma_presidente = models.BooleanField(default=False)
+    fecha_firma_presidente = models.DateTimeField(null=True, blank=True)
+```
+
+### Core Fields
+
+<CardGroup cols={2}>
+  <Card title="Basic Information" icon="info-circle">
+    - **nombre**: Project name (max 255 characters)
+    - **descripcion**: Detailed project description
+    - **fecha_inicio**: Project start date
+    - **fecha_fin**: Project end date
+    - **presupuesto_total**: Total budget allocated (12 digits, 2 decimals)
+  </Card>
+  
+  <Card title="Governance" icon="users">
+    - **objetivos**: Main project objectives
+    - **justificacion**: Project justification
+    - **beneficiarios_estimados**: Number of beneficiaries
+    - **quorum_asamblea**: Assembly attendance count
+    - **firma_presidente**: President's digital approval
+  </Card>
+</CardGroup>
+
+## Project States
+
+Projects follow a strict workflow through seven states:
+
+```python
+ESTADO_CHOICES = [
+    ('borrador', 'Borrador'),
+    ('revision_interna', 'En Revisión Interna'),
+    ('revision_cpa', 'En Revisión CPA'),
+    ('observaciones', 'Con Observaciones'),
+    ('aprobado', 'Aprobado'),
+    ('ejecucion', 'En Ejecución'),
+    ('cierre', 'Cierre'),
+]
+```
+
+<Steps>
+  <Step title="Borrador (Draft)">
+    Initial state when project is created. Community admin can edit all fields and attach documentation.
+  </Step>
+  
+  <Step title="Revisión Interna (Internal Review)">
+    Project submitted for internal review by community board members. Transition from 'borrador' or 'observaciones'.
+  </Step>
+  
+  <Step title="Revisión CPA (CPA Review)">
+    Submitted to external CPA auditor for validation. Only Presidente or Directorio can trigger this transition.
+  </Step>
+  
+  <Step title="Observaciones (With Observations)">
+    CPA has returned the project with required corrections. Returns to revision_interna after fixes.
+  </Step>
+  
+  <Step title="Aprobado (Approved)">
+    CPA has approved the project. Ready for execution.
+  </Step>
+  
+  <Step title="Ejecución (In Execution)">
+    Project is actively being implemented. Renditions can be submitted.
+  </Step>
+  
+  <Step title="Cierre (Closure)">
+    Project completed and closed. All renditions finalized.
+  </Step>
+</Steps>
+
+## State Transition Rules
+
+The system enforces strict role-based state transitions:
+
+```python
+@action(detail=True, methods=['post'])
+def cambiar_estado(self, request, pk=None):
+    proyecto = self.get_object()
+    nuevo_estado = request.data.get('nuevo_estado')
+    comentario = request.data.get('comentario', '')
+    
+    # Only CPA can approve
+    if nuevo_estado == 'aprobado':
+        if request.user.rol != 'cpa':
+            return Response({'error': 'Solo el CPA puede aprobar proyectos'}, 
+                          status=status.HTTP_403_FORBIDDEN)
+        if proyecto.estado != 'revision_cpa':
+            return Response({'error': 'El proyecto debe estar en revisión por el CPA'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+    
+    # Only Presidente/Directorio can submit to CPA
+    elif nuevo_estado == 'revision_cpa':
+        if request.user.rol not in ['presidente', 'directorio', 'admin']:
+            return Response({'error': 'Solo Presidente o Directorio pueden enviar a CPA'}, 
+                          status=status.HTTP_403_FORBIDDEN)
+```
+
+<Note>
+  **Transition Validation**: Each state change creates a `HistorialEstado` record tracking the user, timestamp, previous state, new state, and comments.
+</Note>
+
+## History Tracking
+
+Every state change is recorded in the `HistorialEstado` model:
+
+```python
+class HistorialEstado(models.Model):
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.CASCADE, related_name='historial')
+    estado_anterior = models.CharField(max_length=50, choices=ESTADO_CHOICES)
+    estado_nuevo = models.CharField(max_length=50, choices=ESTADO_CHOICES)
+    usuario = models.ForeignKey('usuarios.CustomUser', on_delete=models.SET_NULL, null=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+    comentario = models.TextField(blank=True)
+```
+
+Access project history via the reverse relation:
+
+```python
+# Get complete audit trail
+historial = proyecto.historial.all().order_by('-fecha')
+```
+
+## Physical Progress Reporting
+
+Track project implementation progress with `ReporteAvance`:
+
+```python
+class ReporteAvance(models.Model):
+    proyecto = models.ForeignKey(Proyecto, on_delete=models.CASCADE, related_name='reportes_avance')
+    autor = models.ForeignKey('usuarios.CustomUser', on_delete=models.SET_NULL, null=True)
+    fecha_reporte = models.DateField(auto_now_add=True)
+    porcentaje_avance = models.PositiveIntegerField(help_text="Porcentaje de avance físico (0-100)")
+    observaciones = models.TextField()
+    foto_avance = models.ImageField(upload_to='avances/', null=True, blank=True)
+```
+
+<Warning>
+  Only users with **ITO (Inspección Técnica de Obras)** or **admin** roles can create progress reports.
+</Warning>
+
+## API Endpoints
+
+### Project CRUD Operations
+
+```bash
+# List all projects (filtered by user's community)
+GET /api/proyectos/proyectos/
+
+# Create new project
+POST /api/proyectos/proyectos/
+{
+  "nombre": "Mejoramiento Plaza Comunitaria",
+  "descripcion": "Renovación de área verde común",
+  "periodo": 1,
+  "presupuesto_total": "5000000",
+  "objetivos": "Mejorar espacios de recreación",
+  "beneficiarios_estimados": 150,
+  "quorum_asamblea": 45,
+  "documentos_ids": [12, 13, 14]
+}
+
+# Update project
+PATCH /api/proyectos/proyectos/{id}/
+
+# Delete project
+DELETE /api/proyectos/proyectos/{id}/
+```
+
+### State Management
+
+```bash
+# Change project state
+POST /api/proyectos/proyectos/{id}/cambiar_estado/
+{
+  "nuevo_estado": "revision_cpa",
+  "comentario": "Proyecto completo, listo para revisión externa"
+}
+```
+
+### Progress Reports
+
+```bash
+# List progress reports
+GET /api/proyectos/reportes-avance/
+
+# Create progress report (ITO/Admin only)
+POST /api/proyectos/reportes-avance/
+{
+  "proyecto": 5,
+  "porcentaje_avance": 45,
+  "observaciones": "Excavación completada, iniciando fundaciones",
+  "foto_avance": <file>
+}
+```
+
+## Document Management
+
+Projects use the "Upload First" pattern - documents are uploaded separately then linked:
+
+```python
+# In ProyectoSerializer
+documentos_ids = serializers.ListField(
+    child=serializers.IntegerField(), 
+    write_only=True, 
+    required=False,
+    help_text="Lista de IDs de documentos previamente subidos"
+)
+
+def create(self, validated_data):
+    documentos_ids = validated_data.pop('documentos_ids', [])
+    proyecto = Proyecto.objects.create(**validated_data)
+    
+    # Link documents to project
+    if documentos_ids:
+        docs = Documento.objects.filter(id__in=documentos_ids)
+        for doc in docs:
+            doc.proyecto = proyecto
+            doc.save()
+    
+    return proyecto
+```
+
+<Tabs>
+  <Tab title="Required Documents">
+    - **Acta de Asamblea**: Meeting minutes approving the project
+    - **Cotizaciones**: Price quotations from providers (minimum 3)
+    - **Cotización Elegida**: Selected quotation
+  </Tab>
+  
+  <Tab title="Access URLs">
+    ```python
+    # Serializer methods provide document URLs
+    acta_url = serializers.SerializerMethodField()
+    cotizaciones_urls = serializers.SerializerMethodField()
+    elegido_url = serializers.SerializerMethodField()
+    
+    def get_acta_url(self, obj):
+        doc = obj.documento_set.filter(tipo='Acta').last()
+        if doc and doc.archivo:
+            return request.build_absolute_uri(doc.archivo.url)
+        return None
+    ```
+  </Tab>
+</Tabs>
+
+## Permissions
+
+Project operations require specific roles:
+
+```python
+class ProyectoViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Users only see projects from their community
+        user = self.request.user
+        if hasattr(user, 'comunidad') and user.comunidad:
+            return Proyecto.objects.filter(comunidad=user.comunidad)
+        return Proyecto.objects.none()
+    
+    def perform_create(self, serializer):
+        # Admin Comunidad auto-assigns their community
+        if self.request.user.rol == 'Admin Comunidad':
+            serializer.save(comunidad=self.request.user.comunidad)
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Documentation First" icon="file-upload">
+    Always upload and validate required documents before creating the project. Use the document IDs in the `documentos_ids` field.
+  </Card>
+  
+  <Card title="Budget Planning" icon="calculator">
+    Ensure `presupuesto_total` doesn't exceed the available period budget. Frontend should validate against `periodo.monto_asignado`.
+  </Card>
+  
+  <Card title="Quorum Validation" icon="check-circle">
+    Verify `quorum_asamblea` meets minimum requirements defined by community statutes before submission.
+  </Card>
+  
+  <Card title="State Transitions" icon="route">
+    Follow the linear workflow. Skipping states will result in validation errors. Use comments to document each transition.
+  </Card>
+</CardGroup>
+
+## Related Resources
+
+- [Budget Period Management](/features/budgets)
+- [Expense Renditions](/features/renditions)
+- [Document Management](/features/documents)
+- [Dashboard Analytics](/features/dashboard)

@@ -1,0 +1,464 @@
+---
+title: 'Documents API'
+description: 'API endpoints for managing document uploads and attachments'
+---
+
+The Documents API allows you to upload and manage documents that can be attached to projects and renditions.
+
+## Base URL
+
+All documents endpoints are prefixed with:
+
+```
+/api/documentos/
+```
+
+## Authentication
+
+All endpoints require JWT authentication. Include the token in the Authorization header:
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+---
+
+## Upload First Pattern
+
+<Info>
+Auditoriapp uses an "Upload First" pattern for documents. Upload documents first using this API, then reference them by ID when creating projects or renditions.
+</Info>
+
+Workflow:
+1. Upload document to `/api/documentos/`
+2. Receive document ID in response
+3. Use document ID when creating/updating projects or renditions
+
+---
+
+## Documents
+
+### List Documents
+
+Retrieve all documents.
+
+```
+GET /api/documentos/
+```
+
+<ResponseField name="id" type="integer">
+  Unique identifier for the document
+</ResponseField>
+
+<ResponseField name="fecha_subida" type="datetime">
+  Timestamp when the document was uploaded (auto-generated)
+</ResponseField>
+
+<ResponseField name="proyecto" type="integer">
+  ID of the associated project (nullable)
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Name/title of the document (max 255 characters)
+</ResponseField>
+
+<ResponseField name="tipo" type="string">
+  Document type (max 50 characters)
+</ResponseField>
+
+<ResponseField name="archivo" type="file">
+  The uploaded file
+</ResponseField>
+
+<ResponseField name="descripcion" type="text">
+  Optional description of the document
+</ResponseField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.auditoriapp.com/api/documentos/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/documentos/', {
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+const data = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.auditoriapp.com/api/documentos/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+data = response.json()
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+[
+  {
+    "id": 45,
+    "fecha_subida": "2024-03-10T14:23:00Z",
+    "proyecto": 1,
+    "nombre": "Acta de Asamblea",
+    "tipo": "Acta",
+    "archivo": "documentos/acta_asamblea_2024.pdf",
+    "descripcion": "Acta de asamblea que aprueba el proyecto"
+  },
+  {
+    "id": 46,
+    "fecha_subida": "2024-03-10T14:25:00Z",
+    "proyecto": 1,
+    "nombre": "Cotización Proveedor A",
+    "tipo": "Cotizaciones",
+    "archivo": "documentos/cotizacion_a.pdf",
+    "descripcion": "Cotización del proveedor A"
+  }
+]
+```
+</ResponseExample>
+
+### Document Types
+
+Common document types used in the system:
+
+- `Acta` - Assembly minutes
+- `Cotizaciones` - Quotations/bids
+- `Cotizacion Elegida` - Selected quotation
+- `Factura` - Invoice
+- `Boleta` - Receipt
+- `Comprobante` - Payment proof
+- `Otro` - Other
+
+### Get Document Details
+
+Retrieve detailed information about a specific document.
+
+```
+GET /api/documentos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the document
+</ParamField>
+
+### Upload Document
+
+Upload a new document. The document can be associated with a project later or during upload.
+
+```
+POST /api/documentos/
+```
+
+<ParamField body="nombre" type="string" required>
+  Name/title of the document
+</ParamField>
+
+<ParamField body="tipo" type="string" required>
+  Document type (e.g., "Acta", "Cotizaciones", "Factura")
+</ParamField>
+
+<ParamField body="archivo" type="file" required>
+  The file to upload
+</ParamField>
+
+<ParamField body="descripcion" type="text">
+  Optional description
+</ParamField>
+
+<ParamField body="proyecto" type="integer">
+  Optional project ID to associate with (can be set later)
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.auditoriapp.com/api/documentos/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "nombre=Acta de Asamblea" \
+  -F "tipo=Acta" \
+  -F "descripcion=Acta que aprueba el proyecto" \
+  -F "archivo=@/path/to/acta.pdf"
+```
+
+```javascript JavaScript
+const formData = new FormData();
+formData.append('nombre', 'Acta de Asamblea');
+formData.append('tipo', 'Acta');
+formData.append('descripcion', 'Acta que aprueba el proyecto');
+formData.append('archivo', fileInput.files[0]);
+
+const response = await fetch('https://api.auditoriapp.com/api/documentos/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  },
+  body: formData
+});
+const data = await response.json();
+console.log('Document ID:', data.id);
+```
+
+```python Python
+import requests
+
+files = {'archivo': open('/path/to/acta.pdf', 'rb')}
+data = {
+    'nombre': 'Acta de Asamblea',
+    'tipo': 'Acta',
+    'descripcion': 'Acta que aprueba el proyecto'
+}
+
+response = requests.post(
+    'https://api.auditoriapp.com/api/documentos/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'},
+    files=files,
+    data=data
+)
+document_id = response.json()['id']
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+{
+  "id": 47,
+  "fecha_subida": "2024-03-14T09:15:30Z",
+  "proyecto": null,
+  "nombre": "Acta de Asamblea",
+  "tipo": "Acta",
+  "archivo": "documentos/acta_asamblea_2024_03_14.pdf",
+  "descripcion": "Acta que aprueba el proyecto"
+}
+```
+</ResponseExample>
+
+### Upload Multiple Documents
+
+To upload multiple documents (e.g., several quotations), make multiple POST requests:
+
+<CodeGroup>
+```javascript JavaScript
+const documentIds = [];
+
+// Upload first quotation
+const formData1 = new FormData();
+formData1.append('nombre', 'Cotización Proveedor A');
+formData1.append('tipo', 'Cotizaciones');
+formData1.append('archivo', file1);
+
+const response1 = await fetch('https://api.auditoriapp.com/api/documentos/', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+  body: formData1
+});
+documentIds.push((await response1.json()).id);
+
+// Upload second quotation
+const formData2 = new FormData();
+formData2.append('nombre', 'Cotización Proveedor B');
+formData2.append('tipo', 'Cotizaciones');
+formData2.append('archivo', file2);
+
+const response2 = await fetch('https://api.auditoriapp.com/api/documentos/', {
+  method: 'POST',
+  headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+  body: formData2
+});
+documentIds.push((await response2.json()).id);
+
+// Use documentIds when creating project
+const projectResponse = await fetch('https://api.auditoriapp.com/api/proyectos/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    nombre: 'Nuevo Proyecto',
+    // ... other fields ...
+    documentos_ids: documentIds
+  })
+});
+```
+</CodeGroup>
+
+### Update Document
+
+Update an existing document's metadata or file.
+
+```
+PUT /api/documentos/{id}/
+PATCH /api/documentos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the document to update
+</ParamField>
+
+<CodeGroup>
+```bash cURL - Update metadata only
+curl -X PATCH "https://api.auditoriapp.com/api/documentos/47/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "proyecto": 1,
+    "descripcion": "Acta actualizada con más detalles"
+  }'
+```
+
+```bash cURL - Replace file
+curl -X PATCH "https://api.auditoriapp.com/api/documentos/47/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -F "archivo=@/path/to/new_file.pdf"
+```
+</CodeGroup>
+
+### Delete Document
+
+Delete a document.
+
+```
+DELETE /api/documentos/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the document to delete
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "https://api.auditoriapp.com/api/documentos/47/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/documentos/47/', {
+  method: 'DELETE',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+```
+</CodeGroup>
+
+---
+
+## Integration Examples
+
+### Creating a Project with Documents
+
+<Steps>
+  <Step title="Upload Assembly Minutes">
+    ```javascript
+    const actaFormData = new FormData();
+    actaFormData.append('nombre', 'Acta de Asamblea');
+    actaFormData.append('tipo', 'Acta');
+    actaFormData.append('archivo', actaFile);
+    
+    const actaResponse = await fetch('https://api.auditoriapp.com/api/documentos/', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+      body: actaFormData
+    });
+    const actaId = (await actaResponse.json()).id;
+    ```
+  </Step>
+  
+  <Step title="Upload Quotations">
+    ```javascript
+    const quotationIds = [];
+    for (const file of quotationFiles) {
+      const formData = new FormData();
+      formData.append('nombre', file.name);
+      formData.append('tipo', 'Cotizaciones');
+      formData.append('archivo', file);
+      
+      const response = await fetch('https://api.auditoriapp.com/api/documentos/', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+        body: formData
+      });
+      quotationIds.push((await response.json()).id);
+    }
+    ```
+  </Step>
+  
+  <Step title="Create Project with Document IDs">
+    ```javascript
+    const projectResponse = await fetch('https://api.auditoriapp.com/api/proyectos/', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer YOUR_TOKEN',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        nombre: 'Nueva Plaza Comunitaria',
+        periodo: 1,
+        presupuesto_total: '20000.00',
+        // ... other fields ...
+        documentos_ids: [actaId, ...quotationIds]
+      })
+    });
+    ```
+  </Step>
+</Steps>
+
+### Creating a Rendition with Documents
+
+<Steps>
+  <Step title="Upload Invoice">
+    ```javascript
+    const invoiceFormData = new FormData();
+    invoiceFormData.append('nombre', 'Factura Materiales');
+    invoiceFormData.append('tipo', 'Factura');
+    invoiceFormData.append('archivo', invoiceFile);
+    
+    const invoiceResponse = await fetch('https://api.auditoriapp.com/api/documentos/', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer YOUR_TOKEN' },
+      body: invoiceFormData
+    });
+    const invoiceId = (await invoiceResponse.json()).id;
+    ```
+  </Step>
+  
+  <Step title="Create Rendition with Document ID">
+    ```javascript
+    const renditionResponse = await fetch('https://api.auditoriapp.com/api/rendiciones/', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer YOUR_TOKEN',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        proyecto: 1,
+        descripcion: 'Compra de materiales',
+        monto_rendido: '3500.00',
+        numero_documento: 'FAC-001234',
+        fecha_rendicion: '2024-03-15',
+        documentos_ids: [invoiceId]
+      })
+    });
+    ```
+  </Step>
+</Steps>
+
+## File Storage
+
+- Documents are stored in the `documentos/` directory on the server
+- Progress photos (from reports) are stored in `avances/`
+- Payment proofs are stored in `comprobantes_pago/`
+- File URLs are accessible via the `archivo` field or computed URL fields
+
+## Permissions
+
+- All endpoints require authentication
+- No community-specific filtering on documents (global access for authenticated users)
+- Documents can be associated with projects, which are community-filtered

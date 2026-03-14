@@ -1,0 +1,429 @@
+---
+title: 'Renditions API'
+description: 'API endpoints for managing financial renditions and expense reports'
+---
+
+The Renditions API allows you to manage financial renditions (rendiciones) - expense reports that document project expenditures with supporting documentation.
+
+## Base URL
+
+All renditions endpoints are prefixed with:
+
+```
+/api/rendiciones/
+```
+
+## Authentication
+
+All endpoints require JWT authentication. Include the token in the Authorization header:
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+---
+
+## Renditions
+
+### Rendition States
+
+Renditions follow a review workflow with these possible states:
+
+- `pendiente` - Pending review
+- `aprobado` - Approved
+- `observado` - With observations/issues
+- `rechazado` - Rejected
+- `pagado` - Paid
+
+### List Renditions
+
+Retrieve all renditions for projects in the authenticated user's community.
+
+```
+GET /api/rendiciones/
+```
+
+<Info>
+Renditions are automatically filtered based on the authenticated user's community.
+</Info>
+
+<ParamField query="proyecto" type="integer">
+  Filter by project ID
+</ParamField>
+
+<ParamField query="estado" type="string">
+  Filter by state (pendiente, aprobado, observado, rechazado, pagado)
+</ParamField>
+
+<ResponseField name="id" type="integer">
+  Unique identifier for the rendition
+</ResponseField>
+
+<ResponseField name="proyecto" type="integer">
+  ID of the associated project
+</ResponseField>
+
+<ResponseField name="proyecto_nombre" type="string">
+  Name of the associated project (read-only)
+</ResponseField>
+
+<ResponseField name="descripcion" type="text">
+  Description of the expense
+</ResponseField>
+
+<ResponseField name="monto_rendido" type="decimal">
+  Amount submitted (max 12 digits, 2 decimal places)
+</ResponseField>
+
+<ResponseField name="numero_documento" type="string">
+  Invoice or receipt number (max 50 characters)
+</ResponseField>
+
+<ResponseField name="fecha_rendicion" type="date">
+  Date of the rendition (YYYY-MM-DD)
+</ResponseField>
+
+<ResponseField name="documentos_adjuntos" type="array">
+  Array of attached document objects (read-only)
+</ResponseField>
+
+<ResponseField name="documentos_ids" type="array">
+  Array of document IDs to attach (write-only)
+</ResponseField>
+
+<ResponseField name="comprobante_traspaso" type="file">
+  Payment proof/transfer receipt to the provider
+</ResponseField>
+
+<ResponseField name="estado" type="string">
+  Current state (read-only, modified via /revisar/ action)
+</ResponseField>
+
+<ResponseField name="observacion" type="text">
+  Reviewer observations (read-only)
+</ResponseField>
+
+<ResponseField name="revisor" type="integer">
+  ID of the reviewer user (read-only)
+</ResponseField>
+
+<ResponseField name="fecha_revision" type="datetime">
+  Timestamp of the review (read-only)
+</ResponseField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.auditoriapp.com/api/rendiciones/" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/rendiciones/', {
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN'
+  }
+});
+const data = await response.json();
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'https://api.auditoriapp.com/api/rendiciones/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'}
+)
+data = response.json()
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Response
+[
+  {
+    "id": 1,
+    "proyecto": 1,
+    "proyecto_nombre": "Construcción Plaza Comunitaria",
+    "descripcion": "Compra de materiales de construcción",
+    "monto_rendido": "3500.00",
+    "numero_documento": "FAC-001234",
+    "fecha_rendicion": "2024-03-15",
+    "documentos_adjuntos": [
+      {
+        "id": 45,
+        "nombre": "Factura materiales",
+        "tipo": "Factura",
+        "archivo": "documentos/factura_001234.pdf"
+      }
+    ],
+    "comprobante_traspaso": "comprobantes_pago/transferencia_123.pdf",
+    "estado": "aprobado",
+    "observacion": "",
+    "revisor": 3,
+    "fecha_revision": "2024-03-16T10:30:00Z"
+  }
+]
+```
+</ResponseExample>
+
+### Filter by Project
+
+```bash
+curl -X GET "https://api.auditoriapp.com/api/rendiciones/?proyecto=1" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Filter by State
+
+```bash
+curl -X GET "https://api.auditoriapp.com/api/rendiciones/?estado=pendiente" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### Get Rendition Details
+
+Retrieve detailed information about a specific rendition.
+
+```
+GET /api/rendiciones/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the rendition
+</ParamField>
+
+### Create Rendition
+
+Create a new rendition. Documents should be uploaded first using the Documents API.
+
+```
+POST /api/rendiciones/
+```
+
+<ParamField body="proyecto" type="integer" required>
+  ID of the project this rendition belongs to
+</ParamField>
+
+<ParamField body="descripcion" type="text">
+  Description of the expense
+</ParamField>
+
+<ParamField body="monto_rendido" type="decimal" required>
+  Amount being submitted
+</ParamField>
+
+<ParamField body="numero_documento" type="string">
+  Invoice or receipt number
+</ParamField>
+
+<ParamField body="fecha_rendicion" type="date" required>
+  Date of the rendition (YYYY-MM-DD)
+</ParamField>
+
+<ParamField body="documentos_ids" type="array">
+  Array of document IDs to attach (documents must be uploaded first)
+</ParamField>
+
+<ParamField body="comprobante_traspaso" type="file">
+  Payment proof file
+</ParamField>
+
+<Info>
+Use the "Upload First" pattern: upload documents to `/api/documentos/` first, then include their IDs in `documentos_ids`.
+</Info>
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.auditoriapp.com/api/rendiciones/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "proyecto": 1,
+    "descripcion": "Pago a proveedor de materiales",
+    "monto_rendido": "4200.00",
+    "numero_documento": "FAC-002345",
+    "fecha_rendicion": "2024-04-10",
+    "documentos_ids": [48, 49]
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/rendiciones/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    proyecto: 1,
+    descripcion: 'Pago a proveedor de materiales',
+    monto_rendido: '4200.00',
+    numero_documento: 'FAC-002345',
+    fecha_rendicion: '2024-04-10',
+    documentos_ids: [48, 49]
+  })
+});
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auditoriapp.com/api/rendiciones/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'},
+    json={
+        'proyecto': 1,
+        'descripcion': 'Pago a proveedor de materiales',
+        'monto_rendido': '4200.00',
+        'numero_documento': 'FAC-002345',
+        'fecha_rendicion': '2024-04-10',
+        'documentos_ids': [48, 49]
+    }
+)
+```
+</CodeGroup>
+
+### Update Rendition
+
+Update an existing rendition.
+
+```
+PUT /api/rendiciones/{id}/
+PATCH /api/rendiciones/{id}/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the rendition to update
+</ParamField>
+
+<Warning>
+The `estado`, `observacion`, `revisor`, and `fecha_revision` fields are read-only and can only be modified via the `/revisar/` action.
+</Warning>
+
+### Delete Rendition
+
+Delete a rendition.
+
+```
+DELETE /api/rendiciones/{id}/
+```
+
+---
+
+## Review Rendition
+
+Review a rendition and change its state. Only available to CPA reviewers and admins.
+
+```
+POST /api/rendiciones/{id}/revisar/
+```
+
+<ParamField path="id" type="integer" required>
+  The unique identifier of the rendition to review
+</ParamField>
+
+<ParamField body="estado" type="string" required>
+  New state: "aprobado", "observado", or "rechazado"
+</ParamField>
+
+<ParamField body="observacion" type="string">
+  Review observations or comments
+</ParamField>
+
+<Warning>
+Only users with role "cpa", "admin", or "CPA Revisor" can review renditions.
+</Warning>
+
+<CodeGroup>
+```bash cURL - Approve
+curl -X POST "https://api.auditoriapp.com/api/rendiciones/1/revisar/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "estado": "aprobado",
+    "observacion": "Documentación completa y correcta"
+  }'
+```
+
+```bash cURL - Reject with Observations
+curl -X POST "https://api.auditoriapp.com/api/rendiciones/2/revisar/" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "estado": "observado",
+    "observacion": "Falta comprobante de pago, favor adjuntar"
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.auditoriapp.com/api/rendiciones/1/revisar/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer YOUR_TOKEN',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    estado: 'aprobado',
+    observacion: 'Documentación completa y correcta'
+  })
+});
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.auditoriapp.com/api/rendiciones/1/revisar/',
+    headers={'Authorization': 'Bearer YOUR_TOKEN'},
+    json={
+        'estado': 'aprobado',
+        'observacion': 'Documentación completa y correcta'
+    }
+)
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Success
+{
+  "status": "ok",
+  "estado": "aprobado"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json Error - Insufficient Permissions
+{
+  "error": "No tiene permisos para revisar"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json Error - Invalid State
+{
+  "error": "Estado inválido"
+}
+```
+</ResponseExample>
+
+## Workflow
+
+Typical rendition workflow:
+
+1. **Create**: Community admin creates rendition with supporting documents
+2. **Submit**: Rendition starts in `pendiente` state
+3. **Review**: CPA/Auditor reviews using `/revisar/` endpoint
+   - Approve → `aprobado`
+   - Request changes → `observado`
+   - Reject → `rechazado`
+4. **Payment**: Once approved, treasurer uploads payment proof
+5. **Mark Paid**: State changes to `pagado` after payment confirmation
+
+## Permissions
+
+- All endpoints require authentication
+- Users can only access renditions from projects in their community
+- Only CPA, CPA Revisor, and admin users can review renditions
+- Filtering is available by project and state

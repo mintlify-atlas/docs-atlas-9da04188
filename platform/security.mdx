@@ -1,0 +1,521 @@
+---
+title: Security & Authentication
+description: JWT authentication, role-based access control, and security best practices in Auditoriapp
+---
+
+## Overview
+
+Auditoriapp implements **JWT (JSON Web Token) authentication** with **role-based access control (RBAC)** to secure API endpoints and enforce granular permissions across different user types.
+
+<CardGroup cols={2}>
+  <Card title="JWT Authentication" icon="key">
+    Stateless token-based authentication with refresh mechanism
+  </Card>
+  <Card title="7 User Roles" icon="users">
+    Fine-grained access control for different community members
+  </Card>
+  <Card title="Permission Classes" icon="shield">
+    Custom DRF permissions for role validation
+  </Card>
+  <Card title="Community Scoped" icon="building">
+    All permissions respect multi-tenant boundaries
+  </Card>
+</CardGroup>
+
+## JWT Configuration
+
+### SimpleJWT Settings
+
+```python
+# auditoriapp/settings.py:163-170
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256', 
+    'SIGNING_KEY': SECRET_KEY,
+}
+```
+
+<Info>
+  - **Access tokens** expire after 60 minutes
+  - **Refresh tokens** are valid for 7 days
+  - Tokens are rotated on refresh for enhanced security
+  - Old tokens are blacklisted after rotation
+</Info>
+
+### REST Framework Authentication
+
+```python
+# auditoriapp/settings.py:146-154
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.AllowAny',
+    ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+```
+
+## User Model
+
+### CustomUser Model
+
+```python
+# usuarios/models.py:4-24
+class CustomUser(AbstractUser):
+    nombre = models.CharField(max_length=100, blank=True)
+    comunidad = models.ForeignKey(
+        'comunidades.Comunidad', 
+        on_delete=models.CASCADE, 
+        null=True, 
+        blank=True
+    )
+    rol = models.CharField(max_length=20, choices=[
+        ('admin', 'Admin'),
+        ('auditor', 'Auditor'),
+        ('usuario', 'Usuario'),
+        ('directorio', 'Directorio Comunidad'),
+        ('presidente', 'Presidente Comunidad'),
+        ('ito', 'ITO / Responsable'),
+        ('cpa', 'CPA Revisor')
+    ], default='usuario')
+    telefono = models.CharField(max_length=20, blank=True)
+    es_auditor = models.BooleanField(default=False)
+
+    def has_module_perms(self, app_label):
+        return self.is_superuser
+```
+
+### User Roles Explained
+
+<AccordionGroup>
+  <Accordion title="admin - System Administrator">
+    Full system access, can manage all communities and users. Typically used for platform administrators.
+  </Accordion>
+  
+  <Accordion title="auditor - External Auditor">
+    Can review projects and rendiciones across communities. Special flag `es_auditor` provides additional permissions.
+  </Accordion>
+  
+  <Accordion title="usuario - General User">
+    Basic community member with read access to projects and limited write permissions.
+  </Accordion>
+  
+  <Accordion title="directorio - Board Member">
+    Community board member who can approve projects for CPA review and participate in governance.
+  </Accordion>
+  
+  <Accordion title="presidente - Community President">
+    Legal representative who can digitally sign project approvals and send projects to CPA review.
+  </Accordion>
+  
+  <Accordion title="ito - Technical Officer">
+    Responsible for reporting physical project progress and uploading technical documentation.
+  </Accordion>
+  
+  <Accordion title="cpa - Certified Public Accountant">
+    External reviewer who can approve projects, review rendiciones, and issue observations.
+  </Accordion>
+</AccordionGroup>
+
+## Authentication Endpoints
+
+### Token Obtain (Login)
+
+```python
+# usuarios/views.py:29-61
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_view(request):
+    username = request.data.get('username')
+    password = request.data.get('password')
+    
+    if not username or not password:
+        return Response(
+            {'error': 'Username y password son requeridos'}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    user = authenticate(username=username, password=password)
+    if user:
+        serializer = CustomTokenObtainPairSerializer()
+        tokens = serializer.get_token(user)
+        
+        return Response({
+            'access': str(tokens.access_token),
+            'refresh': str(tokens),
+            'user': {
+                'id': str(user.id),
+                'username': user.username,
+                'nombre': user.nombre,
+                'email': user.email,
+                'rol': user.rol,
+                'comunidad': {
+                    'id': str(user.comunidad.id) if user.comunidad else None,
+                    'nombre': user.comunidad.nombre if user.comunidad else None
+                } if user.comunidad else None
+            }
+        })
+    else:
+        return Response(
+            {'error': 'Credenciales inválidas'}, 
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+```
+
+**Request:**
+```bash
+curl -X POST http://localhost:8000/api/auth/login/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "presidente@comunidad.cl",
+    "password": "securepass123"
+  }'
+```
+
+**Response:**
+```json
+{
+  "access": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "refresh": "eyJ0eXAiOiJKV1QiLCJhbGc...",
+  "user": {
+    "id": "1",
+    "username": "presidente@comunidad.cl",
+    "nombre": "Juan Pérez",
+    "email": "presidente@comunidad.cl",
+    "rol": "presidente",
+    "comunidad": {
+      "id": "42",
+      "nombre": "Comunidad Las Flores"
+    }
+  }
+}
+```
+
+### Token Refresh
+
+```python
+# auditoriapp/urls.py:31
+path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+```
+
+**Request:**
+```bash
+curl -X POST http://localhost:8000/api/token/refresh/ \
+  -H "Content-Type: application/json" \
+  -d '{"refresh": "eyJ0eXAiOiJKV1QiLCJhbGc..."}'
+```
+
+### Profile View
+
+```python
+# usuarios/views.py:63-67
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    serializer = UserSerializer(request.user)
+    return Response(serializer.data)
+```
+
+## Role-Based Permissions
+
+### Custom Permission Classes
+
+```python
+# usuarios/permissions.py:1-26
+from rest_framework import permissions
+
+class IsAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'admin'
+
+class IsAuditor(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and (
+            request.user.rol == 'auditor' or request.user.es_auditor
+        )
+
+class IsDirectorio(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'directorio'
+
+class IsPresidente(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'presidente'
+
+class IsITO(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'ito'
+
+class IsCPA(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.rol == 'cpa'
+```
+
+### Using Permission Classes
+
+```python
+# Example: Import permissions in views
+from usuarios.permissions import IsCPA, IsAuditor, IsPresidente, IsDirectorio, IsITO
+
+# Apply to ViewSets
+class ProyectoViewSet(viewsets.ModelViewSet):
+    serializer_class = ProyectoSerializer
+    permission_classes = [IsAuthenticated]  # Base authentication required
+```
+
+## Workflow Permissions
+
+### Project State Transitions
+
+Different roles can perform specific state transitions:
+
+```python
+# proyectos/views.py:30-83
+@action(detail=True, methods=['post'])
+def cambiar_estado(self, request, pk=None):
+    proyecto = self.get_object()
+    nuevo_estado = request.data.get('nuevo_estado')
+    comentario = request.data.get('comentario', '')
+
+    # 1. Only CPA can approve projects
+    if nuevo_estado == 'aprobado':
+        if request.user.rol != 'cpa':
+            return Response(
+                {'error': 'Solo el CPA puede aprobar proyectos'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if proyecto.estado != 'revision_cpa':
+            return Response(
+                {'error': 'El proyecto debe estar en revisión por el CPA'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    # 2. Draft -> Internal Review
+    elif nuevo_estado == 'revision_interna':
+        if proyecto.estado not in ['borrador', 'observaciones']:
+            return Response(
+                {'error': 'Transición no válida'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    # 3. Internal Review -> CPA Review (President or Board only)
+    elif nuevo_estado == 'revision_cpa':
+        if request.user.rol not in ['presidente', 'directorio', 'admin']:
+            return Response(
+                {'error': 'Solo Presidente o Directorio pueden enviar a CPA'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        if proyecto.estado != 'revision_interna':
+            return Response(
+                {'error': 'El proyecto debe haber pasado la revisión interna'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    # 4. CPA -> Observations
+    elif nuevo_estado == 'observaciones':
+        if request.user.rol != 'cpa':
+            return Response(
+                {'error': 'Solo el CPA puede emitir observaciones'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+    # Update state and create history
+    estado_anterior = proyecto.estado
+    proyecto.estado = nuevo_estado
+    proyecto.save()
+
+    HistorialEstado.objects.create(
+        proyecto=proyecto,
+        estado_anterior=estado_anterior,
+        estado_nuevo=nuevo_estado,
+        usuario=request.user,
+        comentario=comentario
+    )
+
+    return Response({
+        'message': f'Estado cambiado a {nuevo_estado}',
+        'estado_anterior': estado_anterior,
+        'estado_nuevo': nuevo_estado
+    })
+```
+
+### ITO Physical Progress Reporting
+
+```python
+# proyectos/views.py:102-107
+def perform_create(self, serializer):
+    # Only ITO or Admin can report physical progress
+    if self.request.user.rol not in ['ito', 'admin']:
+        raise serializers.ValidationError(
+            "Solo el ITO o Admin pueden reportar avance físico."
+        )
+    
+    serializer.save(autor=self.request.user)
+```
+
+## User Creation Permissions
+
+```python
+# usuarios/views.py:69-86
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_user_view(request):
+    # Only Admin Consejo or Admin Comunidad can create users
+    if request.user.rol not in ['Admin Consejo', 'Admin Comunidad']:
+        return Response(
+            {'error': 'No tienes permisos para crear usuarios'}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    serializer = CreateUserSerializer(data=request.data)
+    if serializer.is_valid():
+        # Community admin can only create users in their community
+        if request.user.rol == 'Admin Comunidad':
+            serializer.validated_data['comunidad'] = request.user.comunidad
+        
+        user = serializer.save()
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+    
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+```
+
+## Frontend Authentication
+
+### Storing Tokens
+
+```javascript
+// localStorage after successful login
+localStorage.setItem('access', response.data.access);
+localStorage.setItem('refresh', response.data.refresh);
+localStorage.setItem('user', JSON.stringify(response.data.user));
+```
+
+### Authenticated Requests
+
+```javascript
+// Add Authorization header to API requests
+const config = {
+  headers: {
+    'Authorization': `Bearer ${localStorage.getItem('access')}`
+  }
+};
+
+const response = await axios.get('/api/proyectos/', config);
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="HTTPS Only" icon="lock">
+    Always use HTTPS in production to protect tokens in transit
+  </Card>
+  <Card title="Token Rotation" icon="rotate">
+    Refresh tokens are rotated and old ones blacklisted
+  </Card>
+  <Card title="Short Expiration" icon="clock">
+    Access tokens expire after 60 minutes
+  </Card>
+  <Card title="Role Validation" icon="shield-check">
+    Server-side validation for all role-based actions
+  </Card>
+  <Card title="Community Scoping" icon="building">
+    All queries filtered by user's community
+  </Card>
+  <Card title="Permission Classes" icon="user-shield">
+    DRF permission classes enforce access control
+  </Card>
+</CardGroup>
+
+## Common Security Patterns
+
+### Check Authentication
+
+```python
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def protected_view(request):
+    # request.user is guaranteed to be authenticated
+    pass
+```
+
+### Check Specific Role
+
+```python
+if request.user.rol != 'cpa':
+    return Response(
+        {'error': 'Permission denied'}, 
+        status=status.HTTP_403_FORBIDDEN
+    )
+```
+
+### Check Community Assignment
+
+```python
+if not hasattr(user, 'comunidad') or not user.comunidad:
+    return Response(
+        {"error": "Usuario sin comunidad asignada"}, 
+        status=400
+    )
+```
+
+### Validate Role for Action
+
+```python
+if request.user.rol not in ['presidente', 'directorio', 'admin']:
+    return Response(
+        {'error': 'Insufficient permissions'}, 
+        status=status.HTTP_403_FORBIDDEN
+    )
+```
+
+## API Security Headers
+
+```python
+# auditoriapp/settings.py:54-63
+MIDDLEWARE = [
+    "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+]
+```
+
+## Password Validation
+
+```python
+# auditoriapp/settings.py:98-111
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+]
+```
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Multi-Tenancy" icon="building" href="/platform/multi-tenancy">
+    Learn how community-based isolation works
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/platform/architecture">
+    Understand the system design
+  </Card>
+</CardGroup>

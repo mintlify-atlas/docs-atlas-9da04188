@@ -1,0 +1,529 @@
+---
+title: Dashboard Analytics
+description: Real-time KPIs, charts, and alerts for community fund management with Recharts visualizations
+---
+
+## Overview
+
+The dashboard provides comprehensive analytics for community financial oversight, including budget execution metrics, rendition status tracking, and automated alerts for pending actions.
+
+## KPI Endpoint
+
+The main dashboard data is served from a single endpoint:
+
+```python
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_kpis(request):
+    """Returns general KPIs for the dashboard filtered by community."""
+    user = request.user
+    if not hasattr(user, 'comunidad') or not user.comunidad:
+        return Response({"error": "Usuario sin comunidad asignada"}, status=400)
+    
+    comunidad = user.comunidad
+    # ... calculations ...
+    
+    return Response({
+        "periodo": periodo_data,
+        "kpis": { ... },
+        "alertas": { ... },
+        "charts": { ... }
+    })
+```
+
+**Endpoint:** `GET /api/dashboard/kpis/`
+
+<Note>
+  All data is automatically scoped to the authenticated user's community. No additional filtering is needed on the frontend.
+</Note>
+
+## Response Structure
+
+The endpoint returns four main sections:
+
+<Tabs>
+  <Tab title="periodo">
+    Current active period information:
+    
+    ```json
+    {
+      "periodo": {
+        "nombre": "Periodo 2024",
+        "monto_asignado": "50000000",
+        "fecha_inicio": "2024-01-01",
+        "fecha_fin": "2024-12-31"
+      }
+    }
+    ```
+    
+    Retrieved using the custom manager:
+    ```python
+    periodo_obj = Periodo.objects.periodo_actual(comunidad)
+    ```
+  </Tab>
+  
+  <Tab title="kpis">
+    Key financial metrics:
+    
+    ```json
+    {
+      "kpis": {
+        "total_proyectos": 12,
+        "proyectos_activos": 5,
+        "presupuesto_total": "45000000",
+        "total_pagado": "32000000",
+        "total_rendido": "35000000",
+        "total_rendido_aprobado": "33000000",
+        "porcentaje_ejecucion_fin": 71.11
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="alertas">
+    Actionable items requiring attention:
+    
+    ```json
+    {
+      "alertas": {
+        "rendiciones_observadas": 3,
+        "rendiciones_pendientes": 7,
+        "proyectos_atrasados": 2
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="charts">
+    Data formatted for visualization:
+    
+    ```json
+    {
+      "charts": {
+        "rendiciones": [
+          {"name": "Aprobado", "value": 45},
+          {"name": "Observado", "value": 3},
+          {"name": "Pendiente", "value": 7},
+          {"name": "Rechazado", "value": 2}
+        ]
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## KPI Calculations
+
+### Project Metrics
+
+```python
+# Total projects in community
+total_proyectos = Proyecto.objects.filter(comunidad=comunidad).count()
+
+# Active projects (in execution)
+proyectos_activos = proyectos_qs.filter(estado='ejecucion').count()
+
+# Closed projects
+proyectos_cerrados = proyectos_qs.filter(estado='cierre').count()
+
+# Total allocated budget across all projects
+presupuesto_total = proyectos_qs.aggregate(
+    Sum('presupuesto_total')
+)['presupuesto_total__sum'] or 0
+```
+
+### Financial Metrics
+
+```python
+# Total paid amounts (actual expenditure)
+total_pagado = Rendicion.objects.filter(
+    proyecto__comunidad=comunidad, 
+    estado='pagado'
+).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+
+# Total submitted renditions
+total_rendido_ingresado = rendiciones_qs.aggregate(
+    Sum('monto_rendido')
+)['monto_rendido__sum'] or 0
+
+# Total approved renditions
+total_rendido_aprobado = rendiciones_qs.filter(
+    estado='aprobado'
+).aggregate(Sum('monto_rendido'))['monto_rendido__sum'] or 0
+
+# Budget execution percentage
+porcentaje_ejecucion_fin = (total_pagado / presupuesto_total * 100) if presupuesto_total > 0 else 0
+```
+
+<CardGroup cols={2}>
+  <Card title="total_rendido" icon="file-invoice-dollar">
+    Sum of ALL rendition amounts regardless of state. Shows total accountability submissions.
+  </Card>
+  
+  <Card title="total_rendido_aprobado" icon="check-circle">
+    Sum of only APPROVED renditions. Shows validated expenditures ready for payment.
+  </Card>
+  
+  <Card title="total_pagado" icon="money-bill-transfer">
+    Sum of PAID renditions. Shows actual funds disbursed. Used for budget consumption.
+  </Card>
+  
+  <Card title="porcentaje_ejecucion_fin" icon="percent">
+    (total_pagado / presupuesto_total) × 100. Measures budget utilization rate.
+  </Card>
+</CardGroup>
+
+## Alert System
+
+### Renditions with Observations
+
+```python
+rendiciones_observadas = rendiciones_qs.filter(estado='observado').count()
+```
+
+These require attention from project submitters to correct issues identified by the CPA.
+
+### Pending Reviews
+
+```python
+rendiciones_pendientes = rendiciones_qs.filter(estado='pendiente').count()
+```
+
+These are awaiting CPA review action.
+
+### Overdue Projects
+
+```python
+hoy = timezone.now().date()
+proyectos_atrasados = proyectos_qs.filter(
+    fecha_fin__lt=hoy
+).exclude(estado__in=['cierre', 'rechazado']).count()
+```
+
+Projects past their `fecha_fin` but not yet closed or rejected.
+
+<Warning>
+  Overdue projects may indicate execution delays or missing closure documentation. Review and update status promptly.
+</Warning>
+
+## Chart Data
+
+### Rendition Status Distribution
+
+```python
+"charts": {
+    "rendiciones": [
+        {"name": "Aprobado", "value": rendiciones_qs.filter(estado='aprobado').count()},
+        {"name": "Observado", "value": rendiciones_qs.filter(estado='observado').count()},
+        {"name": "Pendiente", "value": rendiciones_qs.filter(estado='pendiente').count()},
+        {"name": "Rechazado", "value": rendiciones_qs.filter(estado='rechazado').count()},
+    ]
+}
+```
+
+This data structure is designed for direct use with Recharts pie charts.
+
+## Frontend Implementation
+
+The dashboard uses React with Recharts for visualizations:
+
+```jsx
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+const COLORS = ['#6F574E', '#8a7871ff', '#ccb7afff', '#9CA3AF'];
+
+export default function Dashboard() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    async function fetchDashboard() {
+      const res = await apiFetch('/dashboard/kpis/');
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+      setLoading(false);
+    }
+    fetchDashboard();
+  }, []);
+  
+  // ... render logic
+}
+```
+
+### Period Display
+
+```jsx
+{periodoActual ? (
+  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-6 rounded-box bg-base-200 shadow-sm border-l-4 border-primary">
+    <div className="stat text-center md:text-left p-0">
+      <div className="stat-title text-lg font-bold">
+        {periodoActual.nombre} (Actual)
+      </div>
+    </div>
+    <div className="stat text-center md:text-right p-0">
+      <div className="stat-value text-primary text-3xl">
+        {formatMonto(periodoActual.monto_asignado)}
+      </div>
+      <div className="stat-desc text-sm">
+        Del {formatFechaCL(periodoActual.fecha_inicio)} al {formatFechaCL(periodoActual.fecha_fin)}
+      </div>
+    </div>
+  </div>
+) : (
+  <div className="alert alert-warning">No hay un periodo activo configurado.</div>
+)}
+```
+
+### KPI Cards
+
+```jsx
+<div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+  <div className="stats shadow bg-base-100 border-l-4 border-primary">
+    <div className="stat">
+      <div className="stat-title text-lg text-primary">Proyectos</div>
+      <div className="stat-value text-primary text-2xl">{kpis.total_proyectos}</div>
+    </div>
+  </div>
+  
+  <div className="stats shadow bg-base-100 border-l-4 border-secondary">
+    <div className="stat">
+      <div className="stat-title text-lg text-secondary">Presupuesto Total</div>
+      <div className="stat-value text-secondary text-2xl">
+        {formatMoney(kpis.presupuesto_total)}
+      </div>
+      <div className="stat-desc">Asignado a proyectos</div>
+    </div>
+  </div>
+  
+  <div className="stats shadow bg-base-100 border-l-4 border-accent">
+    <div className="stat">
+      <div className="stat-title text-lg text-primary">Montos Pagados</div>
+      <div className="stat-value text-accent text-2xl">
+        {formatMoney(kpis.total_pagado)}
+      </div>
+      <div className="stat-desc">
+        {kpis.porcentaje_ejecucion_fin.toFixed(1)}% ejecutado
+      </div>
+    </div>
+  </div>
+  
+  <div className="stats shadow bg-base-100 border-l-4 border-success">
+    <div className="stat">
+      <div className="stat-title text-lg text-success">Rendido Aprobado</div>
+      <div className="stat-value text-success text-2xl">
+        {formatMoney(kpis.total_rendido_aprobado)}
+      </div>
+      <div className="stat-desc">Justificado correctamente</div>
+    </div>
+  </div>
+</div>
+```
+
+### Pie Chart Visualization
+
+```jsx
+<div className="card bg-base-100 shadow-xl lg:col-span-2">
+  <div className="card-body">
+    <h2 className="card-title">Estado de Rendiciones</h2>
+    <div className="h-64 flex items-center justify-center">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={charts.rendiciones.filter(d => d.value > 0)}
+            cx="50%"
+            cy="50%"
+            labelLine={true}
+            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+            outerRadius={80}
+            fill="#8884d8"
+            dataKey="value"
+          >
+            {charts.rendiciones.filter(d => d.value > 0).map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip />
+          <Legend />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+</div>
+```
+
+<Note>
+  The chart filters out entries with `value: 0` to avoid empty slices in the pie chart.
+</Note>
+
+### Alert Panel
+
+```jsx
+<div className="card bg-base-100 shadow-xl">
+  <div className="card-body">
+    <h2 className="card-title text-error">
+      <svg>...</svg>
+      Alertas
+    </h2>
+    <div className="divider my-0"></div>
+    <ul className="space-y-4">
+      {alertas.rendiciones_observadas > 0 && (
+        <li className="alert alert-primary shadow-sm">
+          <span>
+            Hay <strong className="text-error font-bold text-lg">
+              {alertas.rendiciones_observadas}
+            </strong> rendiciones con observaciones pendientes de corregir.
+          </span>
+        </li>
+      )}
+      {alertas.rendiciones_pendientes > 0 && (
+        <li className="alert alert-secondary shadow-sm">
+          <span>
+            Hay <strong className="text-error font-bold text-lg">
+              {alertas.rendiciones_pendientes}
+            </strong> rendiciones esperando revisión del CPA.
+          </span>
+        </li>
+      )}
+      {alertas.proyectos_atrasados > 0 && (
+        <li className="alert alert-error shadow-sm">
+          <span>
+            <strong>{alertas.proyectos_atrasados}</strong> proyectos han excedido su fecha de término.
+          </span>
+        </li>
+      )}
+      {alertas.rendiciones_observadas === 0 && 
+       alertas.rendiciones_pendientes === 0 && 
+       alertas.proyectos_atrasados === 0 && (
+        <li className="text-center text-gray-500 py-4">
+          ¡Todo al día! No hay alertas pendientes.
+        </li>
+      )}
+    </ul>
+  </div>
+</div>
+```
+
+## Utility Functions
+
+### Currency Formatting
+
+```javascript
+const formatMonto = (amount) => 
+  '$' + Number(amount).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+
+// Example: 45000000 → "$45.000.000"
+```
+
+### Date Formatting
+
+```javascript
+const formatFechaCL = (dateString) => {
+  if (!dateString) return '...';
+  const date = new Date(dateString + 'T00:00:00');
+  return date.toLocaleDateString('es-CL', { 
+    day: '2-digit', 
+    month: '2-digit', 
+    year: 'numeric' 
+  });
+};
+
+// Example: "2024-12-31" → "31-12-2024"
+```
+
+## Real-time Updates
+
+The dashboard fetches data on component mount. To enable real-time updates:
+
+```jsx
+useEffect(() => {
+  const fetchDashboard = async () => {
+    const res = await apiFetch('/dashboard/kpis/');
+    if (res.ok) {
+      const json = await res.json();
+      setData(json);
+    }
+  };
+  
+  // Initial fetch
+  fetchDashboard();
+  
+  // Poll every 30 seconds
+  const interval = setInterval(fetchDashboard, 30000);
+  
+  return () => clearInterval(interval);
+}, []);
+```
+
+<Warning>
+  Frequent polling can increase server load. Consider using WebSockets or Server-Sent Events for true real-time updates in production.
+</Warning>
+
+## Performance Optimization
+
+### Backend Caching
+
+```python
+from django.core.cache import cache
+from django.utils.encoding import force_str
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def dashboard_kpis(request):
+    user = request.user
+    cache_key = f'dashboard_kpis_{user.comunidad.id}'
+    
+    # Check cache first
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return Response(cached_data)
+    
+    # Calculate KPIs...
+    data = { ... }
+    
+    # Cache for 5 minutes
+    cache.set(cache_key, data, 300)
+    
+    return Response(data)
+```
+
+### Database Query Optimization
+
+```python
+# Use select_related and prefetch_related
+proyectos_qs = Proyecto.objects.filter(
+    comunidad=comunidad
+).select_related('periodo', 'comunidad')
+
+rendiciones_qs = Rendicion.objects.filter(
+    proyecto__comunidad=comunidad
+).select_related('proyecto', 'revisor')
+```
+
+## Extension Ideas
+
+<CardGroup cols={2}>
+  <Card title="Budget vs Spent Chart" icon="chart-line">
+    Add a bar chart comparing `presupuesto_total` vs `total_pagado` for visual budget tracking.
+  </Card>
+  
+  <Card title="Project Timeline" icon="timeline">
+    Visualize project schedules with Gantt chart showing `fecha_inicio` and `fecha_fin`.
+  </Card>
+  
+  <Card title="Monthly Trends" icon="chart-area">
+    Track expenditure trends over time with line charts grouped by month.
+  </Card>
+  
+  <Card title="User Activity" icon="user-clock">
+    Show recent actions by users (project submissions, reviews, approvals).
+  </Card>
+</CardGroup>
+
+## Related Resources
+
+- [Project Management](/features/projects)
+- [Budget Periods](/features/budgets)
+- [Expense Renditions](/features/renditions)
+- [Document Management](/features/documents)
